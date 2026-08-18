@@ -69,9 +69,5 @@ Start the graphical application with `run_storyboard.pyw`.
 
 YiF's own source code is available under the [MIT License](LICENSE), Copyright
 © 2026 Simon Gaschler. Notices for bundled components are available in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
-[LICENSE_REVIEW.md](LICENSE_REVIEW.md). See [SECURITY.md](SECURITY.md) for
-security reporting.
-
-The steps for a public prototype release are listed in
-[PUBLIC_RELEASE_CHECKLIST.md](PUBLIC_RELEASE_CHECKLIST.md).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). See
+[SECURITY.md](SECURITY.md) for security reporting.

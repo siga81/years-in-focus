@@ -1,16 +1,15 @@
-# Sicherheitsmeldungen
+# Security policy
 
-Years in Focus befindet sich in einem frühen Prototype-Stadium. Bitte nutze
-keine echten Zugangsdaten in Projektdateien oder Fehlerberichten und veröffentliche
-keine Fotos, Datenbanken oder personenbezogenen Metadaten in einem Issue.
+Years in Focus is an early prototype. Do not include real credentials in project
+files or bug reports, and do not publish photos, databases or personally
+identifiable metadata in an issue.
 
-## Meldung einer Schwachstelle
+## Reporting a vulnerability
 
-Vor der öffentlichen Freigabe des GitHub-Repositories wird ein privater
-Meldeweg eingerichtet. Bis dahin werden Sicherheitsauffälligkeiten ausschließlich
-über den bekannten Testkontakt gemeldet.
+Before the repository is made public, a private reporting channel will be
+configured. Until then, security concerns are reported only through the known
+test contact.
 
-Nach der Veröffentlichung gilt der in den GitHub-Sicherheitsrichtlinien des
-Repositories angegebene Kontaktweg. Öffentliche Issues eignen sich nur für
-Fehler ohne Sicherheits- oder Datenschutzbezug.
-
+After publication, use the reporting channel specified in this repository's
+GitHub security policy. Public issues are suitable only for bugs without a
+security or privacy impact.

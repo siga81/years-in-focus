@@ -1,34 +1,34 @@
-# Years in Focus 0.1.4 – Testausgabe
+# Years in Focus 0.1.4 – private test build
 
-16. August 2026
+16 August 2026
 
-Diese Ausgabe ist für einen geschlossenen Freundes- und Funktionstest bestimmt.
-Sie ist noch keine öffentliche Veröffentlichung.
+This build is intended for closed friend and functional testing. It is not yet
+a public release.
 
-## Neu in 0.1.4
+## New in 0.1.4
 
-- Überarbeitete, ruhigere Oberfläche mit klar gegliederten Arbeitsbereichen.
-- Manuelle Augenkorrektur direkt über Karte oder Bildvorschau.
-- Qualitätsauswahl inklusive Seitenansicht als verständliche, einheitliche
-  Bildanzahl.
-- Neuer Zeitraffer-Modus für viele Fotos.
-- Neue Projektendung `.yif.json`; bisherige `.facemovie.json`-Projekte bleiben
-  kompatibel.
-- Überarbeitete Kurzanleitung, Ko-fi-Link im Über-Dialog und ein klar
-  gegliedertes Bilder-Menü.
+- A calmer, reworked interface with clearly structured work areas.
+- Manual eye correction directly from a card or the image preview.
+- Quality selection including side-view assessment, with one consistent image
+  count.
+- A new time-lapse mode for larger photo collections.
+- The `.yif.json` project format.
+- A revised quick guide, Ko-fi link in the About dialog and a more clearly
+  structured Images menu.
 
 ## Installation
 
-Den Installer starten und dem Einrichtungsassistenten folgen. Die Anwendung wird
-nach `C:\Program Files\Years in Focus` installiert. Ein Desktop-Symbol ist optional.
+Run the installer and follow the setup wizard. The application is installed to
+`C:\Program Files\Years in Focus`; a desktop shortcut is optional.
 
-Bei einem direkten Download kann Windows SmartScreen noch einen Hinweis anzeigen,
-weil diese Testausgabe nicht digital signiert ist. Bitte die Datei nur aus der
-vereinbarten Testquelle verwenden.
+Windows SmartScreen may show a warning when the file is downloaded directly,
+because this test build is not digitally signed. Obtain it only from the agreed
+test source.
 
-## Bitte testen
+## Please test
 
-- Bestehende `.facemovie.json`-Projekte öffnen und neue `.yif.json`-Projekte anlegen.
-- Bildimport, digiKam-Import, Augenkorrektur, Zeitraffer und regulären Export testen.
-- Auffälligkeiten möglichst mit Screenshot, Projektdatei und kurzer Beschreibung
-  des erwarteten Verhaltens melden.
+- Create and reopen a `.yif.json` project.
+- Test image import, digiKam import, eye correction, time-lapse and regular
+  export.
+- Report unexpected behavior with a screenshot, a safe-to-share project file
+  where possible, and a brief description of the expected behavior.

@@ -1,42 +1,39 @@
-# Datenschutz und lokale Datenverarbeitung
+# Privacy and local data processing
 
-Stand: 18. August 2026
+Last updated: 18 August 2026
 
-Years in Focus ist eine lokale Windows-Anwendung. Sie erstellt Videosequenzen
-aus Fotos, die der Nutzer selbst auswählt oder über seine eigene digiKam-
-Bibliothek auswählt.
+Years in Focus is a local Windows application. It creates video sequences from
+photos that you select yourself, either directly or from your own digiKam
+library.
 
-## Keine Übertragung an Years in Focus
+## No data sent to Years in Focus
 
-Years in Focus überträgt keine Fotos, Videodateien, Gesichtsregionen,
-Personennamen, Projektdateien oder digiKam-Datenbankinhalte an einen Server des
-Projekts. Es gibt keine Nutzerkonten, Telemetrie, Analyse- oder Werbedienste.
+Years in Focus does not transmit photos, video files, face regions, names,
+project files or digiKam database contents to a project server. There are no
+user accounts, telemetry, analytics or advertising services.
 
-Die Schaltfläche zu Ko-fi öffnet nur nach einem ausdrücklichen Klick den
-Standardbrowser mit `https://ko-fi.com/siga81`. Ab diesem Zeitpunkt gelten die
-Datenschutzbestimmungen von Ko-fi, nicht diese Datei.
+The Ko-fi button opens your default browser at `https://ko-fi.com/siga81` only
+after you explicitly click it. From that point, Ko-fi's privacy policy applies,
+not this document.
 
-## Lokal gespeicherte Daten
+## Data stored locally
 
-- Projektdateien (`.yif.json`) enthalten die vom
-  Nutzer gewählte Bildreihenfolge, Einstellungen, lokale Dateipfade und – sofern
-  vorhanden – lokale Gesichts-/Augenkorrekturen.
-- Die Anwendung speichert unter `%APPDATA%\YearsInFocus\settings.json` lokale
-  Einstellungen, zuletzt verwendete Projektpfade sowie eine digiKam-
-  Verbindungsbeschreibung. Datenbankpasswörter werden nicht dauerhaft
-  gespeichert.
-- Thumbnail-Caches und erzeugte Videos bleiben auf dem lokalen Rechner bzw. am
-  vom Nutzer gewählten Ausgabeort.
+- Project files (`.yif.json`) contain your selected image order, settings, local
+  file paths and, where present, local face and eye corrections.
+- The application stores local settings, recently used project paths and a
+  digiKam connection description in `%APPDATA%\YearsInFocus\settings.json`.
+  Database passwords are not stored permanently.
+- Thumbnail caches and generated videos remain on your computer or at the
+  output location you choose.
 
 ## digiKam
 
-Bei einer ausdrücklich eingerichteten digiKam-Verbindung liest YiF bestätigte
-Personen, Bildpfade und Gesichtsrechtecke aus der vom Nutzer ausgewählten
-Datenbank. Die Verbindung wird nur lesend verwendet; YiF verändert die
-digiKam-Datenbank nicht.
+When you explicitly configure a digiKam connection, YiF reads confirmed people,
+image paths and face rectangles from the database you selected. The connection
+is read-only; YiF does not modify the digiKam database.
 
-## Eigene Verantwortung
+## Your responsibility
 
-Fotos und Gesichtsmetadaten können personenbezogene Daten sein. Nutzer sind
-selbst dafür verantwortlich, nur Bilder zu verarbeiten und zu veröffentlichen,
-für die sie die erforderlichen Rechte und Einwilligungen besitzen.
+Photos and face metadata may be personal data. You are responsible for
+processing and publishing only images for which you have the necessary rights
+and consent.
