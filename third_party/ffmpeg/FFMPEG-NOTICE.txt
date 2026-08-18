@@ -1,0 +1,17 @@
+Years in Focus bundles the following independent command-line tools:
+
+  ffmpeg.exe and ffprobe.exe
+  FFmpeg build: N-126086-ge5ecfe8970-20260812
+  Platform: Windows x64
+  Variant: LGPL (no --enable-gpl)
+  Build provider: BtbN/FFmpeg-Builds
+  Binary source: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip
+  FFmpeg source revision: e5ecfe8970
+  FFmpeg source: https://github.com/FFmpeg/FFmpeg/tree/e5ecfe8970
+
+FFmpeg is licensed under the GNU Lesser General Public License, version 3 or
+later. The corresponding license text is supplied in
+LICENSE-FFmpeg-LGPLv3.txt. These tools are separate executables used locally
+for optional audio processing and advanced output-quality processing.
+
+Years in Focus is not affiliated with the FFmpeg project.

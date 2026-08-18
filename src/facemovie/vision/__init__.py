@@ -1,0 +1,1 @@
+"""Lokale Landmarken- und Qualitätsanalyse."""

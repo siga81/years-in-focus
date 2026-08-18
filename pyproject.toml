@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "years-in-focus"
+version = "0.1.4"
+description = "Lokales Werkzeug für zeitübergreifende Porträtfilme ohne Standard-Morphing."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "numpy>=2.0",
+  "opencv-python>=4.10",
+  "Pillow>=10.0",
+  "mediapipe>=0.10.31,<0.11",
+  "PyMySQL>=1.1,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+yearsinfocus = "facemovie.cli:main"
+# Legacy command for local developer environments created before 0.1.4.
+facemovie = "facemovie.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/facemovie"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

@@ -1,0 +1,33 @@
+# Local development and build output
+.build-venv/
+.pyinstaller-*/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+release/
+public-release-staging/
+
+# Private working material and backups never belong in the public source tree
+backups/
+Test/
+references/
+*.facemovie.json
+*.yif.json
+*.facemovie-Cache/
+*.yif-Cache/
+*-Daten/
+analysis.json
+run.log
+contact_sheet.jpg
+
+# Local project notes; public documentation lives in the Markdown files below
+AGENTS_*.md
+
+# Generated media may contain personal photos or audio
+*.mp4
+*.wmv
+
+# FFmpeg executables are release-build inputs. They exceed GitHub's regular file
+# size limit and are supplied separately when building a Windows installer.
+third_party/ffmpeg/bin/

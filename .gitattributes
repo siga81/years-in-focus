@@ -1,0 +1,9 @@
+# Keep text files consistent across Windows and Unix contributors.
+* text=auto eol=lf
+
+# Binary assets must never undergo text conversion.
+*.exe binary
+*.ico binary
+*.png binary
+*.onnx binary
+*.task binary
