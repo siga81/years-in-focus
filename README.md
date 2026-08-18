@@ -1,58 +1,55 @@
 # Years in Focus
 
-*Ein Leben in Bildern – im Fokus der Zeit.*
+*A life in pictures – in focus over time.*
 
-Years in Focus (YiF) ist eine lokale Windows-Anwendung für zeitübergreifende
-Foto-Filme. Sie richtet Fotos anhand einer bereits markierten Person aus,
-überblendet sie oder erstellt einen Zeitraffer. Die Originalbilder bleiben
-unverändert.
+Years in Focus (YiF) is a local Windows application for creating videos from
+photos taken over time. It aligns photos around a person already tagged in the
+image, blends them into a Years-in-Focus movie, or creates a time-lapse. Your
+original images remain unchanged.
 
-> **Prototype:** YiF befindet sich in einer frühen Entwicklungsphase. Bitte
-> verwende Sicherungskopien deiner Projektdateien und prüfe erzeugte Videos vor
-> einer Weitergabe.
+> **Prototype:** YiF is in an early stage of development. Keep backups of your
+> project files and review generated videos before sharing them.
 
-## Was YiF kann
+## Features
 
-- JPG/JPEG-Import sowie Auswahl aus einer digiKam-Personenbibliothek;
-- lokale Auswertung vorhandener Gesichtsregionen und Augengeometrie;
-- Qualitätsbewertung für zu kleine oder seitlich aufgenommene Gesichter;
-- Kartenansicht zur Auswahl, Sortierung und manuellen Reihenfolge;
-- manuelle Augenkorrektur für einzelne Karten;
-- regulärer Years-in-Focus-Film oder schneller Zeitraffer;
-- lokaler MP4-Export mit optionaler Musik sowie Start- und Endfolien;
-- deutsch- und englischsprachige Oberfläche.
+- Import JPG/JPEG files or choose photos from a digiKam people collection.
+- Locally evaluate existing face regions and eye geometry.
+- Flag faces that are too small or viewed from the side.
+- Select, sort and manually order images in the card view.
+- Correct eye positions manually for individual cards.
+- Create a regular Years-in-Focus movie or a fast time-lapse.
+- Export MP4 files locally, with optional music and opening/closing slides.
+- Use the interface in German or English.
 
-YiF verwendet kein Cloud-Backend, keine Nutzerkonten und keine Telemetrie.
-Details stehen in [PRIVACY.md](PRIVACY.md).
+YiF has no cloud backend, user accounts or telemetry. See
+[PRIVACY.md](PRIVACY.md) for details.
 
-## Installation unter Windows
+## Installing on Windows
 
-Die jeweilige Windows-Ausgabe wird als Installer in den GitHub-Releases
-bereitgestellt. Nach dem Start des Installers führt der Assistent durch die
-Installation. Bei unsignierten Prototype-Versionen kann Windows SmartScreen
-einen Hinweis anzeigen.
+Windows builds are provided as installers in GitHub Releases. Run the installer
+and follow the setup wizard. Windows SmartScreen may show a warning for
+unsigned prototype builds.
 
-## digiKam-Verbindung
+## digiKam integration
 
-YiF unterstützt die in digiKam üblichen lokalen Datenbankvarianten:
+YiF supports the local database variants commonly used by digiKam:
 
 - SQLite;
-- digiKams internen MySQL/MariaDB-Server;
-- einen extern betriebenen MySQL/MariaDB-Server.
+- digiKam's internal MySQL/MariaDB server;
+- an externally operated MySQL/MariaDB server.
 
-Die Verbindung liest nur die für die gewählte Person benötigten Bildpfade und
-Gesichtsrechtecke. Sie verändert die digiKam-Datenbank nicht.
+The connection only reads image paths and face rectangles needed for the
+selected person. It does not modify the digiKam database.
 
-## Projektdateien
+## Project files
 
-Neue Projekte verwenden die Endung `.yif.json`. Ältere
-`.facemovie.json`-Projekte werden weiterhin geöffnet und können weiterverwendet
-werden. Projektdateien enthalten lokale Dateipfade und gehören normalerweise
-nicht in ein öffentliches Repository.
+New projects use the `.yif.json` extension. Older `.facemovie.json` projects
+can still be opened and used. Project files contain local file paths and should
+normally not be committed to a public repository.
 
-## Entwicklung
+## Development
 
-Voraussetzung ist Python 3.11 oder neuer. Für eine Entwicklungsumgebung:
+Python 3.11 or later is required. To create a development environment:
 
 ```powershell
 python -m venv .venv
@@ -61,7 +58,7 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 ```
 
-Die grafische Anwendung startet über `run_storyboard.pyw`.
+Start the graphical application with `run_storyboard.pyw`.
 
 ```powershell
 .\.build-venv\Scripts\python.exe -m compileall -q src
@@ -69,14 +66,13 @@ Die grafische Anwendung startet über `run_storyboard.pyw`.
 .\.build-venv\Scripts\python.exe -m pytest -q
 ```
 
-## Lizenz, Datenschutz und Drittkomponenten
+## License, privacy and third-party components
 
-Der eigene YiF-Quellcode steht unter der [MIT-Lizenz](LICENSE), Copyright © 2026
-Simon Gaschler. Hinweise zu gebündelten Komponenten stehen in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) und
-[LICENSE_REVIEW.md](LICENSE_REVIEW.md). Sicherheitsmeldungen behandelt
-[SECURITY.md](SECURITY.md).
+YiF's own source code is available under the [MIT License](LICENSE), Copyright
+© 2026 Simon Gaschler. Notices for bundled components are available in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[LICENSE_REVIEW.md](LICENSE_REVIEW.md). See [SECURITY.md](SECURITY.md) for
+security reporting.
 
-Die Freigabeschritte für eine öffentliche Prototype-Version sind in
-[PUBLIC_RELEASE_CHECKLIST.md](PUBLIC_RELEASE_CHECKLIST.md) zusammengefasst.
-
+The steps for a public prototype release are listed in
+[PUBLIC_RELEASE_CHECKLIST.md](PUBLIC_RELEASE_CHECKLIST.md).
