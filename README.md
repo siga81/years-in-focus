@@ -43,9 +43,8 @@ selected person. It does not modify the digiKam database.
 
 ## Project files
 
-New projects use the `.yif.json` extension. Older `.facemovie.json` projects
-can still be opened and used. Project files contain local file paths and should
-normally not be committed to a public repository.
+Projects use the `.yif.json` extension. Project files contain local file paths
+and should normally not be committed to a public repository.
 
 ## Development
 

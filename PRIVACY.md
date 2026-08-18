@@ -18,7 +18,7 @@ Datenschutzbestimmungen von Ko-fi, nicht diese Datei.
 
 ## Lokal gespeicherte Daten
 
-- Projektdateien (`.yif.json`, ältere `.facemovie.json`) enthalten die vom
+- Projektdateien (`.yif.json`) enthalten die vom
   Nutzer gewählte Bildreihenfolge, Einstellungen, lokale Dateipfade und – sofern
   vorhanden – lokale Gesichts-/Augenkorrekturen.
 - Die Anwendung speichert unter `%APPDATA%\YearsInFocus\settings.json` lokale
@@ -40,4 +40,3 @@ digiKam-Datenbank nicht.
 Fotos und Gesichtsmetadaten können personenbezogene Daten sein. Nutzer sind
 selbst dafür verantwortlich, nur Bilder zu verarbeiten und zu veröffentlichen,
 für die sie die erforderlichen Rechte und Einwilligungen besitzen.
-
