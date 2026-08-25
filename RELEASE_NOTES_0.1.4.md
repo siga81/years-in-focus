@@ -46,5 +46,5 @@ through GitHub's private vulnerability reporting channel.
 
 ## Installer checksum
 
-`YearsInFocus-Setup-0.1.4-x64-system.exe`  
+`YearsInFocus-Setup-0.1.4-x64-system.exe`
 SHA-256: `C19DC849C141E704ADE5A62E9554EF16D64F20A4F509B57AB72F3C249406A608`
