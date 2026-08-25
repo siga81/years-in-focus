@@ -29,12 +29,30 @@ def test_export_command_uses_project_settings_and_iris_alignment(tmp_path: Path)
 
 
 def test_preview_command_overrides_only_resolution(tmp_path: Path) -> None:
-    project = StoryboardProject(analysis_path="analysis.json", person_name="Testperson")
+    project = StoryboardProject(
+        analysis_path="analysis.json", person_name="Testperson",
+        preview_show_image_number=True, preview_show_filename=True,
+    )
     command = build_export_command(
-        "python", tmp_path, tmp_path / "test.facemovie.json", project, tmp_path / "preview.mp4", width=1280, height=720,
+        "python", tmp_path, tmp_path / "test.facemovie.json", project, tmp_path / "preview.mp4",
+        width=1280, height=720, preview=True,
     )
     assert command[command.index("--width") + 1] == "1280"
     assert command[command.index("--height") + 1] == "720"
+    assert "--preview-overlay-number" in command
+    assert "--preview-overlay-filename" in command
+
+
+def test_preview_overlay_is_never_passed_to_the_final_export(tmp_path: Path) -> None:
+    project = StoryboardProject(
+        analysis_path="analysis.json", person_name="Testperson",
+        preview_show_image_number=True, preview_show_filename=True,
+    )
+    command = build_export_command(
+        "python", tmp_path, tmp_path / "test.facemovie.json", project, tmp_path / "movie.mp4",
+    )
+    assert "--preview-overlay-number" not in command
+    assert "--preview-overlay-filename" not in command
 
 
 def test_export_command_requests_safe_overwrite_only_when_confirmed(tmp_path: Path) -> None:

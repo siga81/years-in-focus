@@ -12,6 +12,7 @@ from facemovie.digikam import (
     list_people,
     person_collection_subpaths,
     person_images,
+    same_face_region,
     test_connection as database_test_connection,
 )
 from facemovie.importing import paths_from_input_list
@@ -99,6 +100,9 @@ class DigiKamSqliteAdapterTests(unittest.TestCase):
         self.assertEqual(person.image_count, 1)
         images = person_images(self.settings, person, self.collection)
         self.assertEqual(len(images), 1)
+        all_regions = person_images(self.settings, person, self.collection, all_regions=True)
+        self.assertEqual(len(all_regions), 2)
+        self.assertFalse(same_face_region(all_regions[0].region, all_regions[1].region))
 
     def test_new_projects_sort_records_by_capture_time(self) -> None:
         records = [

@@ -10,6 +10,13 @@ from typing import Any
 RECENT_PROJECT_LIMIT = 5
 
 
+def default_projects_directory() -> Path:
+    """Return a user-writable default folder for newly created YiF projects."""
+    directory = Path.home() / "Documents" / "Years in Focus Projects"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 def settings_path() -> Path:
     """Use the Windows per-user app-data directory, never the digiKam database."""
     base = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")

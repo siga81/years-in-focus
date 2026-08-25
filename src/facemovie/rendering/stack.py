@@ -189,6 +189,38 @@ def _static_slide_frame(path: Path, output_size: tuple[int, int]) -> np.ndarray:
     return result
 
 
+def _with_preview_label(frame: np.ndarray, label: str | None) -> np.ndarray:
+    """Add a small readable review label without affecting normal exports."""
+    if not label:
+        return frame
+    result = frame.copy()
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = max(0.42, min(0.78, result.shape[1] / 1900))
+    thickness = max(1, round(scale * 1.5))
+    margin = max(12, round(result.shape[1] * 0.015))
+    max_width = result.shape[1] - margin * 2
+    text = label
+    while text:
+        (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
+        if text_width <= max_width:
+            break
+        text = text[:-1]
+    if text != label:
+        text = (text[:-1] + "…") if len(text) > 1 else "…"
+        (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
+    left = max(margin, result.shape[1] - margin - text_width)
+    bottom = result.shape[0] - margin
+    cv2.rectangle(
+        result,
+        (left - 8, bottom - text_height - baseline - 8),
+        (left + text_width + 8, bottom + 8),
+        (12, 20, 28),
+        thickness=-1,
+    )
+    cv2.putText(result, text, (left, bottom), font, scale, (235, 241, 244), thickness, cv2.LINE_AA)
+    return result
+
+
 def render_stack_mp4(
     entries: list[tuple[Path, Landmarks, float]],
     output_path: Path,
@@ -198,7 +230,7 @@ def render_stack_mp4(
     transition_seconds: float,
     eye_y: float,
     eye_distance_fraction: float,
-    border_pixels: int = 10,
+    border_pixels: int = 5,
     border_color: str = "#ffffff",
     max_visible_cards: int = 4,
     eye_size_balance: float = 0.0,
@@ -206,6 +238,7 @@ def render_stack_mp4(
     closing_slide: Path | None = None,
     slide_seconds: float = 3.0,
     progress: Callable[[str, int, int], None] | None = None,
+    preview_labels: list[str] | None = None,
 ) -> StackVideoResult:
     if not entries:
         raise ValueError("Kein akzeptiertes Bild für den Stapel-Videoexport vorhanden.")
@@ -215,6 +248,8 @@ def render_stack_mp4(
         raise ValueError("max_visible_cards darf nicht negativ sein.")
     if slide_seconds < 0:
         raise ValueError("Die Folienstandzeit darf nicht negativ sein.")
+    if preview_labels is not None and len(preview_labels) != len(entries):
+        raise ValueError("Die Vorschau-Beschriftungen passen nicht zu den Karten.")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     width, height = output_size
     writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
@@ -244,6 +279,8 @@ def render_stack_mp4(
     total_frames += slide_frames * int(opening_frame is not None)
     total_frames += slide_frames * int(closing_frame is not None)
     total_frames += transition_frames * int(closing_frame is not None)
+    def write_frame(frame: np.ndarray, label: str | None = None) -> None:
+        writer.write(_with_preview_label(frame, label))
     try:
         first_card_already_visible = False
         if opening_frame is not None:
@@ -258,7 +295,7 @@ def render_stack_mp4(
                     (frame_index + 1) / slide_fade_frames
                     if frame_index < slide_fade_frames and slide_fade_frames else 1.0
                 )
-                writer.write(cv2.addWeighted(black_frame, 1.0 - opacity, opening_frame, opacity, 0.0))
+                write_frame(cv2.addWeighted(black_frame, 1.0 - opacity, opening_frame, opacity, 0.0))
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
@@ -267,22 +304,24 @@ def render_stack_mp4(
             first_static = _compose([(*cards[0], 1.0)], output_size)
             for step in range(1, transition_frames + 1):
                 opacity = step / transition_frames if transition_frames else 1.0
-                writer.write(cv2.addWeighted(opening_frame, 1.0 - opacity, first_static, opacity, 0.0))
+                write_frame(cv2.addWeighted(opening_frame, 1.0 - opacity, first_static, opacity, 0.0), preview_labels[0] if preview_labels else None)
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
             visible.append(cards[0])
             for _ in range(hold_frames):
-                writer.write(first_static)
+                write_frame(first_static, preview_labels[0] if preview_labels else None)
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
             first_card_already_visible = True
-        for card in cards[1:] if first_card_already_visible else cards:
+        start_index = 1 if first_card_already_visible else 0
+        for card_index, card in enumerate(cards[start_index:], start=start_index):
+            label = preview_labels[card_index] if preview_labels else None
             base = _compose([(color, alpha, 1.0) for color, alpha in visible], output_size)
             for step in range(1, transition_frames + 1):
                 opacity = step / transition_frames if transition_frames else 1.0
-                writer.write(_compose([(base, np.full((height, width), 255, dtype=np.uint8), 1.0), (*card, opacity)], output_size))
+                write_frame(_compose([(base, np.full((height, width), 255, dtype=np.uint8), 1.0), (*card, opacity)], output_size), label)
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
@@ -291,7 +330,7 @@ def render_stack_mp4(
                 visible = visible[-max_visible_cards:]
             static = _compose([(color, alpha, 1.0) for color, alpha in visible], output_size)
             for _ in range(hold_frames):
-                writer.write(static)
+                write_frame(static, label)
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
@@ -301,7 +340,7 @@ def render_stack_mp4(
             final_stack = _compose([(color, alpha, 1.0) for color, alpha in visible], output_size)
             for step in range(1, transition_frames + 1):
                 opacity = step / transition_frames if transition_frames else 1.0
-                writer.write(cv2.addWeighted(final_stack, 1.0 - opacity, closing_frame, opacity, 0.0))
+                write_frame(cv2.addWeighted(final_stack, 1.0 - opacity, closing_frame, opacity, 0.0))
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
@@ -309,7 +348,7 @@ def render_stack_mp4(
             # duration: its final frames are the fade-out, not extra time.
             slide_fade_frames = min(transition_frames, slide_frames)
             for _ in range(slide_frames - slide_fade_frames):
-                writer.write(closing_frame)
+                write_frame(closing_frame)
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
@@ -318,7 +357,7 @@ def render_stack_mp4(
             black_frame = np.zeros_like(closing_frame)
             for frame_index in range(slide_fade_frames):
                 opacity = 1.0 - ((frame_index + 1) / slide_fade_frames)
-                writer.write(cv2.addWeighted(black_frame, 1.0 - opacity, closing_frame, opacity, 0.0))
+                write_frame(cv2.addWeighted(black_frame, 1.0 - opacity, closing_frame, opacity, 0.0))
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)

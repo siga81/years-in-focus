@@ -18,6 +18,7 @@ class SortPreservesSelectionTests(unittest.TestCase):
 
         self.assertTrue(StoryboardApp._pose_is_accepted(app, {"metrics": {"pose_yaw_degrees": -19.0}}))
         self.assertFalse(StoryboardApp._pose_is_accepted(app, {"metrics": {"pose_yaw_degrees": 21.0}}))
+        self.assertFalse(StoryboardApp._pose_is_accepted(app, {"metrics": {}}))
 
     def test_date_sort_reorders_cards_without_changing_enabled_flags(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -75,6 +75,28 @@ def _image_paths(directory: Path) -> list[Path]:
     return sorted(path for path in directory.iterdir() if path.is_file() and path.suffix.lower() in suffixes)
 
 
+def _preview_labels_for_cards(
+    stack_entries: list[tuple[Path, Landmarks, float]],
+    card_numbers_by_path: dict[str, int],
+    *,
+    show_card_number: bool,
+    show_filename: bool,
+) -> list[str] | None:
+    """Create review-only preview labels using the persistent card numbers."""
+    if not show_card_number and not show_filename:
+        return None
+    labels: list[str] = []
+    for path, _landmarks, _face_height in stack_entries:
+        parts: list[str] = []
+        if show_card_number:
+            card_number = card_numbers_by_path.get(str(path.resolve()))
+            parts.append(f"Karte {card_number}" if card_number is not None else "Karte ?")
+        if show_filename:
+            parts.append(path.name)
+        labels.append("  ·  ".join(parts))
+    return labels
+
+
 def _write_jpeg(path: Path, image_bgr) -> None:
     """Write JPEG bytes through pathlib so Windows Unicode paths stay intact."""
     ok, encoded = cv2.imencode(".jpg", image_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
@@ -369,6 +391,10 @@ def render_project_video(args: argparse.Namespace) -> int:
     analysis_path = Path(project.analysis_path).resolve()
     records = json.loads(analysis_path.read_text(encoding="utf-8"))
     by_path = {str(Path(record["path"]).resolve()): record for record in records if record.get("path")}
+    card_numbers_by_path = {
+        str(Path(card.source_path).resolve()): index
+        for index, card in enumerate(project.cards, start=1)
+    }
     stack_entries: list[tuple[Path, Landmarks, float]] = []
     skipped: list[dict[str, str]] = []
     dense_detector = None
@@ -433,16 +459,19 @@ def render_project_video(args: argparse.Namespace) -> int:
             metrics = record.get("metrics") or {}
             face_height = float(metrics.get("face_height_px", 0.0))
             score = float(metrics.get("yunet_score", 0.0))
-            yaw = abs(float(metrics.get("pose_yaw_degrees", 0.0)))
+            try:
+                yaw = abs(float(metrics["pose_yaw_degrees"]))
+            except (KeyError, TypeError, ValueError):
+                yaw = None
             required_height = args.height * 0.22
             quality_level = 0
             if face_height <= 0 or score <= 0 or face_height < required_height * 0.65 or score < 0.42:
                 quality_level = 2
-            elif face_height < required_height or score < 0.65 or yaw > project.maximum_side_view_degrees:
+            elif face_height < required_height or score < 0.65 or yaw is None or yaw > project.maximum_side_view_degrees:
                 quality_level = 1
             if quality_level > project.selection_quality_level:
                 continue
-            if project.timelapse_frontal_only and yaw > 12.0:
+            if project.timelapse_frontal_only and (yaw is None or yaw > 12.0):
                 continue
             year = str(record.get("capture_time") or "unbekannt")[:4]
             by_year.setdefault(year, []).append(entry)
@@ -456,6 +485,12 @@ def render_project_video(args: argparse.Namespace) -> int:
             stack_entries.extend(entries_for_year[index] for index in positions)
         if not stack_entries:
             raise ValueError("Kein technisch geeignetes, frontales Bild für den Zeitraffer vorhanden.")
+    preview_labels = _preview_labels_for_cards(
+        stack_entries,
+        card_numbers_by_path,
+        show_card_number=args.preview_overlay_number,
+        show_filename=args.preview_overlay_filename,
+    )
     eye_distance = args.eye_distance if args.eye_distance is not None else project.eye_distance
     music_paths = [Path(path).expanduser() for path in project.background_audio_paths[:10]]
     if not music_paths and project.background_audio_path:
@@ -483,6 +518,7 @@ def render_project_video(args: argparse.Namespace) -> int:
             Path(project.closing_slide_path) if project.closing_slide_path else None,
             project.slide_seconds,
             progress=lambda phase, current, total: _progress(args, phase, current, total),
+            preview_labels=preview_labels,
         )
         if music_paths:
             _progress(args, "add_audio", 0, 1)
@@ -603,7 +639,7 @@ def parser() -> argparse.ArgumentParser:
     video.add_argument("--analysis", type=Path, required=True, help="analysis.json eines align-Laufs")
     video.add_argument("--output", type=Path, required=True, help="Neue MP4-Ausgabedatei")
     video.add_argument("--fps", type=float, default=30.0)
-    video.add_argument("--hold-seconds", type=float, default=4.0)
+    video.add_argument("--hold-seconds", type=float, default=3.3)
     video.add_argument("--transition-seconds", type=float, default=0.8)
     video.set_defaults(func=render_video)
     stack = sub.add_parser("render-stack-video", help="Gerahmte Fotos als bleibenden Years-in-Focus-Stapel rendern")
@@ -612,11 +648,11 @@ def parser() -> argparse.ArgumentParser:
     stack.add_argument("--width", type=int, default=1920)
     stack.add_argument("--height", type=int, default=1080)
     stack.add_argument("--fps", type=float, default=30.0)
-    stack.add_argument("--hold-seconds", type=float, default=4.0)
+    stack.add_argument("--hold-seconds", type=float, default=3.3)
     stack.add_argument("--transition-seconds", type=float, default=0.8)
     stack.add_argument("--eye-y", type=float, default=0.38)
-    stack.add_argument("--eye-distance", type=float, default=0.065)
-    stack.add_argument("--border-pixels", type=int, default=10)
+    stack.add_argument("--eye-distance", type=float, default=0.033)
+    stack.add_argument("--border-pixels", type=int, default=5)
     stack.add_argument(
         "--eye-size-balance", type=float, default=0.0,
         help="1 = nur Augenabstand, 0 = XMP-Gesichtsregion; Standard stabilisiert die wahrgenommene Größe.",
@@ -642,6 +678,8 @@ def parser() -> argparse.ArgumentParser:
     )
     project_video.add_argument("--progress", action="store_true", help="Maschinenlesbare Fortschrittszeilen ausgeben")
     project_video.add_argument("--overwrite", action="store_true", help="Bestehende Ausgabe erst nach erfolgreichem Export ersetzen")
+    project_video.add_argument("--preview-overlay-number", action="store_true", help="Nur im Vorschaufilm die Kartennummer einblenden")
+    project_video.add_argument("--preview-overlay-filename", action="store_true", help="Nur im Vorschaufilm den Dateinamen einblenden")
     project_video.set_defaults(func=render_project_video)
     board = sub.add_parser("storyboard", help="Lokalen Storyboard-Editor öffnen")
     board.add_argument("--analysis", type=Path)

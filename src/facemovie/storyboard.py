@@ -38,6 +38,7 @@ from facemovie.digikam import (
     list_people,
     person_collection_subpaths,
     person_images,
+    same_face_region,
 )
 from facemovie.i18n import Translator, localize_widget_tree
 from facemovie.importing import ImportScan, scan_import_paths
@@ -50,6 +51,7 @@ from facemovie.relink import RelinkSearch, find_unique_matches, normalised_path
 from facemovie.rendering.audio import audio_duration_seconds, format_audio_duration
 from facemovie.runtime import application_root, bundled_asset_root, bundled_cli_path
 from facemovie.settings import (
+    default_projects_directory,
     load_digikam_profile,
     load_language,
     load_recent_projects,
@@ -65,7 +67,25 @@ from facemovie.vision.yunet import YuNetLandmarker
 
 LARGE_IMPORT_THRESHOLD = 300
 CARD_PAGE_SIZE = 240
+MAX_CARD_COLUMNS = 12
 KOFI_URL = "https://ko-fi.com/siga81"
+
+
+def parse_capture_time(value: object) -> datetime | None:
+    """Accept digiKam's ISO and localized date-time values for burst grouping."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        pass
+    for pattern in ("%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M"):
+        try:
+            return datetime.strptime(text, pattern)
+        except ValueError:
+            continue
+    return None
 
 
 def build_export_command(
@@ -77,6 +97,7 @@ def build_export_command(
     width: int | None = None,
     height: int | None = None,
     overwrite: bool = False,
+    preview: bool = False,
 ) -> list[str]:
     """Build the reproducible command used by the storyboard export button."""
     # GUI builds keep shared models under `_internal`; the one-file CLI can
@@ -128,6 +149,10 @@ def build_export_command(
     ]
     if overwrite:
         command.append("--overwrite")
+    if preview and project.preview_show_image_number:
+        command.append("--preview-overlay-number")
+    if preview and project.preview_show_filename:
+        command.append("--preview-overlay-filename")
     return command
 
 
@@ -192,7 +217,8 @@ class StoryboardApp:
         self.preview_enabled_var = tk.BooleanVar(value=self.project.preview_enabled)
         self.year_separators_var = tk.BooleanVar(value=self.project.show_year_separators)
         self.advanced_output_var = tk.BooleanVar(value=self.project.advanced_output_options)
-        self._saved_project_signature = self._project_signature()
+        self.preview_show_image_number_var = tk.BooleanVar(value=self.project.preview_show_image_number)
+        self.preview_show_filename_var = tk.BooleanVar(value=self.project.preview_show_filename)
         if self.project_path.is_file():
             save_recent_project(self.project_path)
         self._recent_projects = load_recent_projects()
@@ -200,13 +226,18 @@ class StoryboardApp:
         self._application_icon: tk.PhotoImage | None = None
         self.root.title(f"{PRODUCT_NAME} – {project.title}")
         self._set_application_icon()
-        self.root.geometry("1260x820")
+        self.root.geometry("1440x900")
         self.root.minsize(980, 640)
         self._configure_application_style()
         self._build()
         localize_widget_tree(self.root, self.t)
         self._build_card_grid(chunked=len(self.project.cards) > 500)
         self.refresh_inspector()
+        # Several controls normalise their initial values while being built
+        # (for example to an allowed slider increment).  That is not a user
+        # edit and must not trigger a save prompt when another project is
+        # opened immediately after program start.
+        self._saved_project_signature = self._project_signature()
         self.root.protocol("WM_DELETE_WINDOW", self._request_close)
         # The first Canvas <Configure> can arrive while the panes are still
         # negotiating their width. Ensure an empty initial grid is rebuilt once
@@ -516,9 +547,11 @@ class StoryboardApp:
     def _build_selection_context(self, parent: tk.Widget) -> None:
         """Keep link and quality context close to card decisions, not in the header."""
         box = ttk.LabelFrame(parent, text=self.t("image_details"), padding=(12, 10))
-        box.pack(fill="x", pady=(0, 14))
+        box.pack(fill="x")
         self.digikam_link_label = ttk.Label(box, foreground="#356b8c", wraplength=420)
         self.digikam_link_label.pack(anchor="w")
+        self.pose_label = ttk.Label(box, wraplength=420)
+        self.pose_label.pack(anchor="w", pady=(5, 0))
         self.warning_label = ttk.Label(box, wraplength=420, foreground="#a65e00")
         self.warning_label.pack(anchor="w", pady=(5, 0))
 
@@ -550,7 +583,7 @@ class StoryboardApp:
         digikam_menu.add_command(label=self.t("import_digikam"), command=self.import_digikam)
         digikam_menu.add_command(label=self.t("update_digikam"), command=self.update_digikam_project)
         digikam_menu.add_separator()
-        digikam_menu.add_command(label=self.t("configure_digikam"), command=self.configure_digikam_source)
+        digikam_menu.add_command(label=self.t("configure_digikam"), command=self.configure_and_import_digikam)
         import_menu.add_cascade(label=self.t("digikam_menu"), menu=digikam_menu)
         import_menu.add_separator()
         import_menu.add_command(label=self.t("relink_missing_images"), command=self.relink_missing_images)
@@ -799,20 +832,15 @@ class StoryboardApp:
             lambda value: f"{value:.0f}°",
             on_change=lambda _value: self._refresh_selection_controls(),
         )
-        ttk.Button(
-            box, text=self.t("distribute_selection"), command=self.apply_desired_image_count,
-        ).pack(anchor="w", pady=(7, 0))
-
-        burst_box = ttk.LabelFrame(parent, text=self.t("series_title"), padding=(12, 10))
-        burst_box.pack(fill="x")
-        self._setting_heading(burst_box, self.t("series_gap"), "help_series_gap")
+        self._setting_heading(box, self.t("series_gap"), "help_series_gap", pady=(10, 0))
         self._setting_scale(
-            burst_box, "series_minimum_gap_minutes", 0.0, 15.0, 0.5,
+            box, "series_minimum_gap_minutes", 0.0, 15.0, 0.5,
             lambda value: self.t("off") if value == 0 else f"{value:g} {'minutes' if self.t.language == 'en' else 'Minuten'}",
+            on_change=lambda _value: self._refresh_selection_controls(),
         )
         ttk.Button(
-            burst_box, text=self.t("reduce_series"), command=self.reduce_series,
-        ).pack(anchor="w", pady=(7, 0))
+            box, text=self.t("distribute_selection"), command=self.apply_desired_image_count,
+        ).pack(pady=(16, 0))
         self._refresh_selection_controls()
 
     def _refresh_selection_controls(self) -> None:
@@ -862,7 +890,7 @@ class StoryboardApp:
         self._setting_heading(self.standard_movie_settings, self.t("face_size"), "help_face_size")
         self._setting_scale(
             self.standard_movie_settings, "eye_distance", 0.01, 0.065, 0.001,
-            lambda value: f"{value * 100:.1f}%  ({'4.0% = default' if self.t.language == 'en' else '4,0% = Standard'})",
+            lambda value: f"{value * 100:.1f}%  ({'3.3% = default' if self.t.language == 'en' else '3,3% = Standard'})",
         )
         self._setting_heading(self.standard_movie_settings, self.t("eye_line"), "help_eye_line", pady=(8, 0))
         self._setting_scale(
@@ -965,8 +993,11 @@ class StoryboardApp:
             if {"green": 0, "yellow": 1, "red": 2}[quality] > self.project.selection_quality_level:
                 continue
             record = self._analysis_record(card) or {}
-            yaw = abs(float((record.get("metrics") or {}).get("pose_yaw_degrees", 0.0)))
-            if self.project.timelapse_frontal_only and yaw > 12.0:
+            try:
+                yaw = abs(float((record.get("metrics") or {})["pose_yaw_degrees"]))
+            except (KeyError, TypeError, ValueError):
+                yaw = None
+            if self.project.timelapse_frontal_only and (yaw is None or yaw > 12.0):
                 continue
             year = str(record.get("capture_time") or "unbekannt")[:4]
             by_year[year] = by_year.get(year, 0) + 1
@@ -1098,12 +1129,6 @@ class StoryboardApp:
         self.final_export_details_label.pack(anchor="w", pady=(5, 0))
         self._refresh_final_export_summary()
         play_after_export = tk.BooleanVar(value=self.project.play_after_export)
-        ttk.Checkbutton(
-            box,
-            text=self.t("start_after_export"),
-            variable=play_after_export,
-            command=lambda: setattr(self.project, "play_after_export", play_after_export.get()),
-        ).pack(anchor="w", pady=(0, 7))
         self._settings_vars["play_after_export"] = play_after_export
         self._sync_preview_aspect_ratio()
         preview_resolution = tk.StringVar(value=self._preview_resolution_label())
@@ -1118,13 +1143,27 @@ class StoryboardApp:
         self.preview_resolution_picker = preview_picker
         preview_picker.bind("<<ComboboxSelected>>", lambda _event: self._set_preview_resolution(preview_resolution.get()))
         self._settings_vars["preview_resolution"] = preview_resolution
+        ttk.Checkbutton(
+            preview_box,
+            text=self.t("preview_overlay_number"),
+            variable=self.preview_show_image_number_var,
+            command=self._toggle_preview_export_overlay,
+        ).pack(anchor="w")
+        ttk.Checkbutton(
+            preview_box,
+            text=self.t("preview_overlay_filename"),
+            variable=self.preview_show_filename_var,
+            command=self._toggle_preview_export_overlay,
+        ).pack(anchor="w", pady=(2, 8))
         ttk.Button(
             preview_box,
             text=self.t("preview_export"),
             command=lambda: self.export_video(preview=True),
-        ).pack(anchor="w", ipadx=6, ipady=2)
+        ).pack(anchor="center", pady=(4, 0), ipadx=6, ipady=2)
+        final_action = ttk.Frame(box)
+        final_action.pack(fill="x", pady=(20, 0))
         tk.Button(
-            box,
+            final_action,
             text=self.t("export_video"),
             command=self.export_video,
             background="#1479b8",
@@ -1135,7 +1174,13 @@ class StoryboardApp:
             relief="flat",
             padx=18,
             pady=8,
-        ).pack(anchor="w", pady=(16, 2))
+        ).pack(anchor="center")
+        ttk.Checkbutton(
+            final_action,
+            text=self.t("start_after_export"),
+            variable=play_after_export,
+            command=lambda: setattr(self.project, "play_after_export", play_after_export.get()),
+        ).pack(anchor="center", pady=(8, 0))
 
     def _refresh_background_music_label(self) -> None:
         """Show an ordered, compact playlist with local availability information."""
@@ -1357,10 +1402,45 @@ class StoryboardApp:
             quality_level = {"green": 0, "yellow": 1, "red": 2}[traffic_light]
             if quality_level <= self.project.selection_quality_level:
                 eligible.append((card, record))
-        return eligible
+        return self._series_representatives(eligible)
+
+    def _series_representatives(
+        self, entries: list[tuple[StoryboardCard, dict]],
+    ) -> list[tuple[StoryboardCard, dict]]:
+        """Keep one technically strongest entry per configured burst-photo group.
+
+        This is deliberately shared by automatic distribution and the explicit
+        reduction action, so both controls obey the same series setting.
+        """
+        if self.project.series_minimum_gap_minutes <= 0:
+            return entries
+        dated: list[tuple[StoryboardCard, dict, datetime]] = []
+        undated: list[tuple[StoryboardCard, dict]] = []
+        for card, record in entries:
+            captured_at = parse_capture_time(record.get("capture_time"))
+            if captured_at is None:
+                undated.append((card, record))
+            else:
+                dated.append((card, record, captured_at))
+        dated.sort(key=lambda entry: entry[2])
+        groups: list[list[tuple[StoryboardCard, dict, datetime]]] = []
+        maximum_gap_seconds = self.project.series_minimum_gap_minutes * 60
+        for entry in dated:
+            if not groups or (entry[2] - groups[-1][-1][2]).total_seconds() > maximum_gap_seconds:
+                groups.append([entry])
+            else:
+                groups[-1].append(entry)
+        representatives = [
+            max(group, key=lambda entry: self._target_quality(entry[1]))[:2]
+            for group in groups
+        ]
+        return representatives + undated
 
     def _pose_is_accepted(self, record: dict) -> bool:
-        yaw = abs(float((record.get("metrics") or {}).get("pose_yaw_degrees", 0.0)))
+        try:
+            yaw = abs(float((record.get("metrics") or {})["pose_yaw_degrees"]))
+        except (KeyError, TypeError, ValueError):
+            return False
         return yaw <= self.project.maximum_side_view_degrees
 
     @staticmethod
@@ -1529,6 +1609,11 @@ class StoryboardApp:
         tier = {"480p": 854, "720p": 1280, "1080p": 1920}[label.split(" ", 1)[0]]
         self.project.preview_width, self.project.preview_height = self._preview_dimensions(tier)
 
+    def _toggle_preview_export_overlay(self) -> None:
+        """Persist review captions, but use them only for preview exports."""
+        self.project.preview_show_image_number = self.preview_show_image_number_var.get()
+        self.project.preview_show_filename = self.preview_show_filename_var.get()
+
     def _set_fps(self, label: str) -> None:
         self.project.fps = float(label.split()[0])
         self._refresh_final_export_summary()
@@ -1619,9 +1704,10 @@ class StoryboardApp:
         self._resize_after_id = None
         thumbnail_width, _ = self._card_dimensions()
         available = max(1, self.canvas.winfo_width())
-        # The compact inspector has a fixed width; use the reclaimed workspace for
-        # up to six cards before asking the user to scroll vertically.
-        columns = min(6, max(1, (available - 12) // (thumbnail_width + 22)))
+        # Use wide displays instead of leaving unused canvas space on the right.
+        # Twelve cards remain legible at the smallest supported card size while
+        # avoiding an unbounded widget count on ultra-wide displays.
+        columns = min(MAX_CARD_COLUMNS, max(1, (available - 12) // (thumbnail_width + 22)))
         needs_initial_build = bool(self.project.cards) and not self._card_widgets and not self._building_card_grid
         if columns != self._column_count or needs_initial_build:
             self._column_count = columns
@@ -1702,12 +1788,14 @@ class StoryboardApp:
             if mapped:
                 self.inspector_scroll.pack_forget()
 
-    def _center_dialog(self, dialog: tk.Toplevel) -> None:
-        """Centre custom dialogs over the current Years in Focus window."""
+    def _center_dialog(self, dialog: tk.Toplevel, parent: tk.Misc | None = None) -> None:
+        """Centre custom dialogs over their triggering window."""
         dialog.update_idletasks()
-        width, height = dialog.winfo_reqwidth(), dialog.winfo_reqheight()
-        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - width) // 2)
-        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - height) // 2)
+        width = max(dialog.winfo_width(), dialog.winfo_reqwidth())
+        height = max(dialog.winfo_height(), dialog.winfo_reqheight())
+        anchor = parent if parent is not None and parent.winfo_exists() else self.root
+        x = anchor.winfo_rootx() + max(0, (anchor.winfo_width() - width) // 2)
+        y = anchor.winfo_rooty() + max(0, (anchor.winfo_height() - height) // 2)
         dialog.geometry(f"+{x}+{y}")
 
     def _style_progress_dialog(self, dialog: tk.Toplevel) -> None:
@@ -1840,63 +1928,6 @@ class StoryboardApp:
             widget = widget.nametowidget(parent_name)
         return False
 
-    def reduce_series(self) -> None:
-        minimum_gap = self.project.series_minimum_gap_minutes
-        if minimum_gap <= 0:
-            messagebox.showinfo(self.t("series_title"), self.t("series_off"), parent=self.root)
-            return
-        try:
-            records = json.loads(Path(self.project.analysis_path).read_text(encoding="utf-8"))
-        except (OSError, ValueError) as error:
-            messagebox.showerror(self.t("series_title"), self.t.format("analysis_read_failed", error=error), parent=self.root)
-            return
-        by_path = {str(Path(record["path"]).resolve()): record for record in records if record.get("path")}
-        candidates: list[tuple[StoryboardCard, dict]] = []
-        for card in self.project.cards:
-            record = by_path.get(str(Path(card.source_path).resolve()))
-            if card.enabled and record and record.get("capture_time"):
-                candidates.append((card, record))
-        candidates.sort(key=lambda entry: entry[1]["capture_time"])
-        groups: list[list[tuple[StoryboardCard, dict]]] = []
-        limit_seconds = minimum_gap * 60
-        for candidate in candidates:
-            if not groups:
-                groups.append([candidate])
-                continue
-            previous = datetime.fromisoformat(groups[-1][-1][1]["capture_time"])
-            current = datetime.fromisoformat(candidate[1]["capture_time"])
-            if (current - previous).total_seconds() <= limit_seconds:
-                groups[-1].append(candidate)
-            else:
-                groups.append([candidate])
-
-        to_disable: list[StoryboardCard] = []
-        for group in groups:
-            if len(group) < 2:
-                continue
-            def quality(entry: tuple[StoryboardCard, dict]) -> tuple[float, float, str]:
-                metrics = entry[1].get("metrics") or {}
-                return (
-                    float(metrics.get("yunet_score", 0.0)),
-                    float(metrics.get("face_height_ratio", 0.0)),
-                    entry[0].source_path,
-                )
-            best_card, _ = max(group, key=quality)
-            to_disable.extend(card for card, _ in group if card is not best_card)
-        if not to_disable:
-            messagebox.showinfo(self.t("series_title"), self.t("series_none"), parent=self.root)
-            return
-        if not messagebox.askyesno(
-            self.t("reduce_series"),
-            self.t.format("series_reduce_confirm", count=len(to_disable)),
-            parent=self.root,
-        ):
-            return
-        for card in to_disable:
-            card.enabled = False
-        self.refresh_inspector()
-        self._update_duration_label()
-
     @staticmethod
     def _workspace_root() -> Path:
         return application_root()
@@ -1999,7 +2030,7 @@ class StoryboardApp:
         progress = ttk.Progressbar(dialog, mode="indeterminate", length=320)
         progress.pack(padx=18, pady=(0, 18))
         progress.start(12)
-        self._center_dialog(dialog)
+        self._center_dialog(dialog, self.root)
         expected = self._expected_source_sizes()
 
         def scan() -> None:
@@ -2345,6 +2376,14 @@ class StoryboardApp:
             settings, people = configured
         self._import_digikam_person(settings, people)
 
+    def configure_and_import_digikam(self) -> None:
+        """Configure a source from the menu and continue straight to its people."""
+        configured = self.configure_digikam_source()
+        if configured is None:
+            return
+        settings, people = configured
+        self._import_digikam_person(settings, people)
+
     def _remember_discovered_digikam(self, internal_server: bool, settings: DigiKamConnection) -> None:
         """Persist non-sensitive auto-discovery results for later project updates."""
         kind = "Interne MariaDB (digiKam)" if internal_server else (
@@ -2370,6 +2409,7 @@ class StoryboardApp:
         dialog.resizable(False, False)
         frame = ttk.Frame(dialog, padding=16)
         frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
         ttk.Label(frame, text="digiKam-Bibliothek verbinden", font=("Segoe UI", 11, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w"
         )
@@ -2432,6 +2472,8 @@ class StoryboardApp:
             )
             if selected:
                 database.set(selected)
+                database_entry.icursor(0)
+                database_entry.xview_moveto(0)
 
         browse = ttk.Button(frame, text=self.t("choose_file"), command=choose_sqlite)
 
@@ -2443,8 +2485,12 @@ class StoryboardApp:
             browse.grid_forget()
             if is_sqlite:
                 browse.grid(row=7, column=2, sticky="e", pady=3)
-                database_entry.configure(width=27)
+                database_entry.grid_configure(columnspan=1)
+                database_entry.configure(width=34)
+                database_entry.icursor(0)
+                database_entry.xview_moveto(0)
             else:
+                database_entry.grid_configure(columnspan=2)
                 database_entry.configure(width=38)
                 if selected_kind_id() == "external" and port.get() == "3307":
                     port.set("3306")
@@ -2475,8 +2521,10 @@ class StoryboardApp:
             if not people:
                 status.configure(text="Verbunden, aber keine bestätigten Personen mit JPG/JPEG-Gesichtsregionen gefunden.")
                 return
+            status.configure(text="Verbunden. Personenauswahl wird geöffnet …", foreground="#28763a")
+            dialog.update_idletasks()
             result["people"] = people
-            dialog.destroy()
+            dialog.after(120, dialog.destroy)
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=9, column=0, columnspan=3, sticky="e", pady=(10, 0))
@@ -2627,29 +2675,96 @@ class StoryboardApp:
             if roots is None:
                 return
             images = [image for image in person_images(settings, person, roots) if image.path.is_file()]
+            all_regions = [
+                image for image in person_images(settings, person, roots, all_regions=True)
+                if image.path.is_file()
+            ]
         except Exception as error:
             messagebox.showerror("digiKam-Projekt aktualisieren", f"digiKam konnte nicht gelesen werden:\n{error}")
             return
         known = {str(Path(card.source_path).resolve()) for card in self.project.cards}
         new_images = [image for image in images if str(image.path.resolve()) not in known]
-        current_paths = {str(image.path.resolve()) for image in images}
-        no_longer_confirmed = sum(1 for path in known if path not in current_paths)
+        regions_by_path: dict[str, list[FaceRegion]] = {}
+        for image in all_regions:
+            regions_by_path.setdefault(str(image.path.resolve()), []).append(image.region)
+        stale_cards = self._digikam_stale_cards(regions_by_path)
+        if stale_cards:
+            count = len(stale_cards)
+            label = "Karte" if count == 1 else "Karten"
+            if messagebox.askyesno(
+                "digiKam-Projekt aktualisieren",
+                f"{count} bestehende {label} gehört in digiKam nicht mehr zu {person.name}.\n\n"
+                "Diese Karte jetzt aus dem Projekt entfernen? Originalbild und digiKam-Daten bleiben unverändert.",
+            ):
+                try:
+                    self._remove_digikam_cards(stale_cards)
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    messagebox.showerror(
+                        "digiKam-Projekt aktualisieren",
+                        f"Veraltete Karten konnten nicht entfernt werden:\n{error}",
+                    )
+                    return
+                known = {str(Path(card.source_path).resolve()) for card in self.project.cards}
+                # Do not add a just removed photo again during the same update.
+                # A later update can deliberately import it after a new digiKam assignment.
+                new_images = [image for image in new_images if str(image.path.resolve()) not in known]
         if not new_images:
             messagebox.showinfo(
                 "digiKam-Projekt aktualisieren",
                 f"Keine neuen bestätigten Bilder für {person.name}.\n"
-                f"{no_longer_confirmed} bestehende Karten sind nicht mehr in der aktuellen digiKam-Auswahl; sie bleiben unverändert.",
+                "Die bestehende Auswahl stimmt mit den aktuellen Gesichtsmarkierungen in digiKam überein.",
             )
             return
         if not messagebox.askyesno(
             "digiKam-Projekt aktualisieren",
             f"Neue bestätigte Bilder: {len(new_images)}\n"
             f"Bereits im Projekt: {len(known)}\n"
-            f"Nicht mehr in digiKam bestätigt: {no_longer_confirmed} (bleiben unverändert)\n\n"
             "Neue Bilder analysieren und als deaktivierte Karten ergänzen?",
         ):
             return
         self._start_digikam_update(settings, person, roots, new_images)
+
+    def _digikam_stale_cards(self, regions_by_path: dict[str, list[FaceRegion]]) -> list[StoryboardCard]:
+        """Find cards whose *saved target face* no longer belongs to the person.
+
+        Older projects without a persisted face region stay conservative: a
+        reachable photo is retained, because its original target cannot be
+        established reliably anymore.
+        """
+        stale: list[StoryboardCard] = []
+        for card in self.project.cards:
+            record = self._analysis_record(card)
+            region = self._face_region_from_mapping((record or {}).get("region"))
+            path = str(Path(card.source_path).resolve())
+            current_regions = regions_by_path.get(path, [])
+            if region is not None:
+                if not any(same_face_region(region, current) for current in current_regions):
+                    stale.append(card)
+            elif not current_regions:
+                stale.append(card)
+        return stale
+
+    def _remove_digikam_cards(self, cards: list[StoryboardCard]) -> None:
+        """Remove confirmed-stale cards and their matching local analysis records."""
+        paths = {str(Path(card.source_path).resolve()) for card in cards}
+        analysis_path = Path(self.project.analysis_path)
+        records = json.loads(analysis_path.read_text(encoding="utf-8"))
+        if not isinstance(records, list):
+            raise ValueError("Die Analyse enthält keine gültige Bildliste.")
+        self.project.cards = [
+            card for card in self.project.cards if str(Path(card.source_path).resolve()) not in paths
+        ]
+        records = [
+            record for record in records
+            if not record.get("path") or str(Path(record["path"]).resolve()) not in paths
+        ]
+        analysis_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.selected_index = min(self.selected_index, max(0, len(self.project.cards) - 1))
+        self._analysis_by_path = None
+        self._mark_project_saved()
+        self._build_card_grid()
+        self.refresh_inspector()
+        self._refresh_selection_controls()
 
     def _start_digikam_update(
         self, settings: DigiKamConnection, person: DigiKamPerson, roots: dict[str, Path], images
@@ -3142,11 +3257,16 @@ class StoryboardApp:
         body = ttk.Frame(dialog, padding=18)
         body.pack(fill="both", expand=True)
         ttk.Label(body, text=self.t("eye_alignment_title"), font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        ttk.Label(
+            body,
+            text=self.t.format("eye_alignment_card", number=self.selected_index + 1, filename=source.name),
+            foreground="#356b8f",
+        ).pack(anchor="w", pady=(3, 0))
         ttk.Label(body, text=self.t("eye_alignment_loading")).pack(anchor="w", pady=(6, 0))
         status = ttk.Label(body, text=self.t("eye_alignment_loading"))
         status.pack(anchor="w", pady=(14, 0))
         ttk.Button(body, text=self.t("close"), command=dialog.destroy).pack(anchor="e", pady=(12, 0))
-        self._center_dialog(dialog)
+        self._center_dialog(dialog, self.root)
 
         def work() -> None:
             try:
@@ -3240,6 +3360,11 @@ class StoryboardApp:
             for child in body.winfo_children():
                 child.destroy()
             ttk.Label(body, text=self.t("eye_alignment_title"), font=("Segoe UI", 13, "bold")).pack(anchor="w")
+            ttk.Label(
+                body,
+                text=self.t.format("eye_alignment_card", number=self.selected_index + 1, filename=source.name),
+                foreground="#356b8f",
+            ).pack(anchor="w", pady=(3, 0))
             ttk.Label(body, text=self.t("eye_alignment_explanation"), wraplength=1080).pack(anchor="w", pady=(6, 14))
             controls = ttk.Frame(body)
             controls.pack(fill="x", pady=(0, 8))
@@ -3372,6 +3497,23 @@ class StoryboardApp:
                     return
                 dialog.destroy()
 
+            def apply_and_continue() -> None:
+                card.eye_override = current_override()
+                try:
+                    self._mark_project_saved()
+                except OSError as error:
+                    messagebox.showerror(self.t("eye_alignment_title"), self.t.format("save_failed", error=error), parent=dialog)
+                    return
+                next_index = self._next_enabled_card_index()
+                if next_index is None:
+                    messagebox.showinfo(self.t("eye_alignment_title"), self.t("eye_alignment_no_next"), parent=dialog)
+                    return
+                self.selected_index = next_index
+                self._selected_preview_source = None
+                self.refresh_inspector()
+                dialog.destroy()
+                self.root.after_idle(self.inspect_selected_eye_alignment)
+
             def reset_eye_adjustment() -> None:
                 points[:] = [list(point) for point in automatic_before_points]
                 automatic_points_active["value"] = True
@@ -3410,6 +3552,7 @@ class StoryboardApp:
             ttk.Button(controls, text=self.t("reset_zoom"), command=reset_zoom).pack(side="right")
             ttk.Button(controls, text=self.t("eye_alignment_reset_points"), command=reset_eye_adjustment).pack(side="right", padx=(0, 8))
             ttk.Button(controls, text=self.t("eye_alignment_apply"), command=apply_eye_adjustment).pack(side="right", padx=(0, 8))
+            ttk.Button(controls, text=self.t("eye_alignment_apply_next"), command=apply_and_continue).pack(side="right", padx=(0, 8))
             for canvas in views:
                 canvas.bind("<Control-MouseWheel>", adjust_zoom)
                 canvas.bind("<ButtonPress-2>", begin_pan)
@@ -3429,6 +3572,13 @@ class StoryboardApp:
                 status.configure(text=self.t.format("eye_alignment_failed", error=error))
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _next_enabled_card_index(self) -> int | None:
+        """Return the next active card in the current chronological card order."""
+        for index in range(self.selected_index + 1, len(self.project.cards)):
+            if self.project.cards[index].enabled:
+                return index
+        return None
 
     def edit_selected_face_region(self) -> None:
         """Explicitly replace the selected card's region without touching source XMP."""
@@ -3586,7 +3736,7 @@ class StoryboardApp:
         progress.pack(padx=18, pady=(0, 18))
         progress.start(12)
         ttk.Button(dialog, text=self.t("cancel"), command=self._cancel_import).pack(pady=(0, 14))
-        self._center_dialog(dialog)
+        self._center_dialog(dialog, self._preview_window)
         self._import_dialog, self._import_status, self._import_progress = dialog, status, progress
         self.root.after(250, lambda: self._watch_project_image_update(work_dir, regions))
 
@@ -3952,6 +4102,7 @@ class StoryboardApp:
             width=self.project.preview_width if preview else None,
             height=self.project.preview_height if preview else None,
             overwrite=overwrite,
+            preview=preview,
         )
         environment = os.environ.copy()
         if not getattr(sys, "frozen", False):
@@ -4081,7 +4232,6 @@ class StoryboardApp:
         metrics = (record or {}).get("metrics") or {}
         face_height = float(metrics.get("face_height_px", 0.0))
         score = float(metrics.get("yunet_score", 0.0))
-        yaw = abs(float(metrics.get("pose_yaw_degrees", 0.0)))
         required = self.project.output_height * 0.22
         if face_height <= 0 or score <= 0:
             return "red", "#ff6b63", ("Red: eye position cannot be determined reliably." if self.t.language == "en" else "Rot: Augenposition nicht ausreichend bestimmbar.")
@@ -4090,6 +4240,10 @@ class StoryboardApp:
                 f"Red: technically unsuitable for {self.project.output_height}p (face {face_height:.0f}px, detection score {score * 100:.0f} %)."
                 if self.t.language == "en" else f"Rot: technisch ungeeignet für {self.project.output_height}p (Gesicht {face_height:.0f}px, Erkennungswert {score * 100:.0f} %)."
             )
+        try:
+            yaw = abs(float(metrics["pose_yaw_degrees"]))
+        except (KeyError, TypeError, ValueError):
+            return "yellow", "#ffd54f", self.t("side_view_unavailable_quality")
         pose_only_review = (
             (record or {}).get("status") == "review"
             and bool((record or {}).get("warnings"))
@@ -4384,6 +4538,8 @@ class StoryboardApp:
             text=self.t.format("cards_summary", total=len(self.project.cards), enabled=enabled_count)
         )
         self._refresh_digikam_link_label()
+        pose_text, pose_colour = self._card_pose_info(card)
+        self.pose_label.configure(text=pose_text, foreground=pose_colour)
         warning = self._card_warning(card)
         self.warning_label.configure(text=warning)
         self._request_selected_preview(card.source_path)
@@ -4453,12 +4609,15 @@ class StoryboardApp:
             ttk.Button(
                 preview_header, text=self.t("edit_face_region"), command=self.edit_selected_face_region,
             ).grid(row=0, column=1, sticky="e", padx=(8, 8))
+            ttk.Button(
+                preview_header, text=self.t("inspect_eye_alignment"), command=self.inspect_selected_eye_alignment,
+            ).grid(row=0, column=2, sticky="e", padx=(0, 8))
             ttk.Checkbutton(
                 preview_header,
                 text=self.t("show_face_region"),
                 variable=self.preview_face_region_var,
                 command=self._toggle_preview_face_region,
-            ).grid(row=0, column=2, sticky="e")
+            ).grid(row=0, column=3, sticky="e")
             self.preview_label = tk.Label(
                 window,
                 text=self.t("preview_empty"),
@@ -4519,6 +4678,7 @@ class StoryboardApp:
     def _post_preview_context_menu(self, event: tk.Event) -> str:
         """Keep the same image-specific review actions available from the preview."""
         menu = tk.Menu(self._preview_window or self.root, tearoff=False)
+        menu.add_command(label=self.t("edit_face_region"), command=self.edit_selected_face_region)
         menu.add_command(label=self.t("inspect_eye_alignment"), command=self.inspect_selected_eye_alignment)
         menu.add_separator()
         menu.add_command(label=self.t("open_original"), command=self._open_selected_original)
@@ -4657,6 +4817,19 @@ class StoryboardApp:
         if record.get("status") == "deferred":
             return self.t("burst_note")
         return ""
+
+    def _card_pose_info(self, card: StoryboardCard) -> tuple[str, str]:
+        """Show the measured side view for every card, not only warnings."""
+        record = self._analysis_record(card)
+        metrics = (record or {}).get("metrics") or {}
+        try:
+            yaw = abs(float(metrics["pose_yaw_degrees"]))
+        except (KeyError, TypeError, ValueError):
+            return self.t("side_view_unknown"), "#687681"
+        limit = self.project.maximum_side_view_degrees
+        if yaw > limit:
+            return self.t.format("side_view_exceeds_limit", yaw=yaw, limit=limit), "#a65e00"
+        return self.t.format("side_view_within_limit", yaw=yaw), "#3b7d4a"
 
     def _friendly_warning(self, value: str) -> str:
         """Translate technical warning texts from existing analyses for the GUI."""
@@ -4884,8 +5057,10 @@ class StoryboardApp:
         messagebox.showinfo(PRODUCT_NAME, f"Projekt gespeichert:\n{self.project_path}")
 
     def save_as(self) -> None:
+        default_directory = default_projects_directory()
         target = filedialog.asksaveasfilename(
             defaultextension=".yif.json",
+            initialdir=str(default_directory),
             filetypes=[(self.t("project_file"), "*.yif.json")],
         )
         if target:
@@ -4902,7 +5077,7 @@ def launch(analysis_path: Path | None, project_path: Path | None) -> None:
         project_path = project_path or analysis_path.with_suffix(".yif.json")
     else:
         project = StoryboardProject(analysis_path="", title=PRODUCT_NAME)
-        project_path = Path.cwd() / "Years in Focus.yif.json"
+        project_path = default_projects_directory() / "Years in Focus.yif.json"
     if sys.platform == "win32":
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("YearsInFocus.0.1")

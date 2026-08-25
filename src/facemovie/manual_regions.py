@@ -42,9 +42,9 @@ class ManualRegionDialog:
         self._photo: ImageTk.PhotoImage | None = None
 
         self.dialog = tk.Toplevel(parent)
+        self.dialog.withdraw()
         self.dialog.title(t("manual_faces_title"))
         self.dialog.transient(parent)
-        self.dialog.grab_set()
         self.dialog.protocol("WM_DELETE_WINDOW", self.cancel)
         self.dialog.minsize(820, 620)
         header = ttk.Frame(self.dialog, padding=(16, 14, 16, 8))
@@ -78,10 +78,24 @@ class ManualRegionDialog:
         self.previous_button.pack(side="left")
         self.dialog.update_idletasks()
         self._load_current()
+        self._center_over_parent()
+        self.dialog.deiconify()
+        self.dialog.lift()
+        self.dialog.grab_set()
 
     def show(self) -> tuple[str, dict[str, FaceRegion]] | None:
         self.dialog.wait_window()
         return self.result
+
+    def _center_over_parent(self) -> None:
+        """Place this modal over the window from which it was opened."""
+        self.parent.update_idletasks()
+        self.dialog.update_idletasks()
+        width = max(self.dialog.winfo_width(), self.dialog.winfo_reqwidth())
+        height = max(self.dialog.winfo_height(), self.dialog.winfo_reqheight())
+        x = self.parent.winfo_rootx() + max(0, (self.parent.winfo_width() - width) // 2)
+        y = self.parent.winfo_rooty() + max(0, (self.parent.winfo_height() - height) // 2)
+        self.dialog.geometry(f"+{x}+{y}")
 
     def cancel(self) -> None:
         self.result = None

@@ -28,7 +28,7 @@ class StoryboardProject:
     cards: list[StoryboardCard] = field(default_factory=list)
     title: str = "Years in Focus"
     person_name: str = ""
-    hold_seconds: float = 4.0
+    hold_seconds: float = 3.3
     transition_seconds: float = 0.8
     fps: float = 30.0
     output_width: int = 1920
@@ -48,8 +48,12 @@ class StoryboardProject:
     # final movie's aspect ratio (landscape, portrait or square).
     preview_width: int = 1280
     preview_height: int = 720
+    # Review-only captions are deliberately opt-in and are passed to the
+    # renderer only for a preview export, never for the final movie.
+    preview_show_image_number: bool = False
+    preview_show_filename: bool = False
     eye_y: float = 0.38
-    eye_distance: float = 0.04
+    eye_distance: float = 0.033
     series_minimum_gap_minutes: float = 5.0
     desired_image_count: int = 0
     # Yellow cards remain opt-in: they can be useful for small collections or
@@ -70,7 +74,7 @@ class StoryboardProject:
     closing_slide_path: str = ""
     slide_seconds: float = 3.0
     border_enabled: bool = True
-    border_pixels: int = 10
+    border_pixels: int = 5
     border_color: str = "#ffffff"
     max_visible_cards: int = 0
     preview_enabled: bool = True

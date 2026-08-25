@@ -256,9 +256,18 @@ def person_collection_subpaths(settings: DigiKamConnection, person: DigiKamPerso
 
 
 def person_images(
-    settings: DigiKamConnection, person: DigiKamPerson, collection_root: Path | Mapping[str, Path]
+    settings: DigiKamConnection,
+    person: DigiKamPerson,
+    collection_root: Path | Mapping[str, Path],
+    *,
+    all_regions: bool = False,
 ) -> list[DigiKamImage]:
-    """Return JPG/JPEG images and pixel-space face rectangles for one person."""
+    """Return JPG/JPEG images and pixel-space face rectangles for one person.
+
+    The normal picker returns one item per photo.  Incremental project updates
+    can request every confirmed region, because a photo may contain the same
+    person more than once and the previously selected face must be checked.
+    """
     marker = _placeholder(settings)
     query = f"""
         SELECT i.id AS image_id, p.value AS rect_xml, i.name AS filename, a.relativePath AS relative_path,
@@ -286,7 +295,7 @@ def person_images(
         # digiKam can retain more than one tagRegion row for a person on the
         # same photo. The person picker intentionally reports distinct photos,
         # so a storyboard must use that identical definition as well.
-        if image_id in seen_image_ids:
+        if not all_regions and image_id in seen_image_ids:
             continue
         specific_path = str(row["root_path"])
         if isinstance(collection_root, Mapping):
@@ -319,5 +328,20 @@ def person_images(
         except (ElementTree.ParseError, KeyError, ValueError):
             continue
         result.append(DigiKamImage(path, region, specific_path))
-        seen_image_ids.add(image_id)
+        if not all_regions:
+            seen_image_ids.add(image_id)
     return result
+
+
+def same_face_region(left: FaceRegion, right: FaceRegion, *, tolerance: float = 0.01) -> bool:
+    """Compare two digiKam rectangles while accepting insignificant rounding."""
+    return (
+        left.coordinate_system == right.coordinate_system
+        and all(
+            abs(first - second) <= tolerance
+            for first, second in zip(
+                (left.x, left.y, left.width, left.height),
+                (right.x, right.y, right.width, right.height),
+            )
+        )
+    )

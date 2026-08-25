@@ -13,6 +13,22 @@ _EXIF_CAPTURE_TIME = 36867  # DateTimeOriginal
 _EXIF_FALLBACK_TIME = 306  # DateTime
 
 
+def parse_capture_time(value: str | None) -> datetime | None:
+    """Accept analysis timestamps written by YiF and older localized projects."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        pass
+    for pattern in ("%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M"):
+        try:
+            return datetime.strptime(value, pattern)
+        except ValueError:
+            continue
+    return None
+
+
 def capture_time(path: Path) -> datetime | None:
     """Liest eine lokale EXIF-Aufnahmezeit, ohne die Datei zu verändern."""
     try:
@@ -48,7 +64,7 @@ def reduce_series(items: list[ImageAnalysis], minimum_gap_minutes: float, keep: 
     if minimum_gap_minutes <= 0:
         return
     candidates = [item for item in items if item.status == "accepted" and item.capture_time]
-    candidates.sort(key=lambda item: item.capture_time or "")
+    candidates.sort(key=lambda item: parse_capture_time(item.capture_time) or datetime.max)
     groups: list[list[ImageAnalysis]] = []
     maximum_gap_seconds = minimum_gap_minutes * 60
     for item in candidates:
@@ -56,8 +72,10 @@ def reduce_series(items: list[ImageAnalysis], minimum_gap_minutes: float, keep: 
             groups.append([item])
             continue
         previous = groups[-1][-1]
-        previous_time = datetime.fromisoformat(previous.capture_time or "")
-        current_time = datetime.fromisoformat(item.capture_time or "")
+        previous_time = parse_capture_time(previous.capture_time)
+        current_time = parse_capture_time(item.capture_time)
+        if previous_time is None or current_time is None:
+            continue
         if (current_time - previous_time).total_seconds() <= maximum_gap_seconds:
             groups[-1].append(item)
         else:
