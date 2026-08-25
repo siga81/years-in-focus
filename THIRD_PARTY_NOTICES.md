@@ -28,7 +28,7 @@ where available.
 | File | SHA-256 | origin / licensing note |
 | --- | --- | --- |
 | `models/mediapipe/face_landmarker.task` | `64184E229B263107BC2B804C6625DB1341FF2BB731874B0BCC2FE6544E0BC9FF` | Google AI Edge Face Landmarker / Face Mesh V2; Apache-2.0 according to the model card |
-| `models/yunet/face_detection_yunet_2023mar.onnx` | `8F2383E4DD3CFBB4553EA8718107FC0423210DC964F9F4280604804ED2552FA4` | OpenCV Zoo YuNet; verify the license against the specific source before public distribution |
+| `models/yunet/face_detection_yunet_2023mar.onnx` | `8F2383E4DD3CFBB4553EA8718107FC0423210DC964F9F4280604804ED2552FA4` | OpenCV Zoo YuNet; MIT License, Copyright (c) 2020 Shiqi Yu. Source: https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet |
 
 ## FFmpeg
 

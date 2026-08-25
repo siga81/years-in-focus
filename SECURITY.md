@@ -4,12 +4,18 @@ Years in Focus is an early prototype. Do not include real credentials in project
 files or bug reports, and do not publish photos, databases or personally
 identifiable metadata in an issue.
 
-## Reporting a vulnerability
+## Reporting a vulnerability privately
 
-Before the repository is made public, a private reporting channel will be
-configured. Until then, security concerns are reported only through the known
-test contact.
+Use the **Report a vulnerability** button in the repository's **Security** tab.
+This GitHub reporting channel is private: the report is not publicly visible and
+can be handled together as a security advisory.
 
-After publication, use the reporting channel specified in this repository's
-GitHub security policy. Public issues are suitable only for bugs without a
-security or privacy impact.
+For ordinary bugs, feature requests and usage questions, public issues are
+welcome. Do not disclose security- or privacy-relevant details in a public
+issue.
+
+## Supported version
+
+Security fixes are made for the current prototype release, 0.1.4, where
+practicable. This early-stage project does not yet offer a guaranteed response
+time.
