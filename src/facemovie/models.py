@@ -41,6 +41,7 @@ class ImageAnalysis:
     warnings: list[str] = field(default_factory=list)
     metrics: dict[str, float] = field(default_factory=dict)
     output_path: str | None = None
+    capture_time_source: str | None = None
 
     @property
     def filename(self) -> str:

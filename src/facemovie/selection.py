@@ -9,8 +9,9 @@ from PIL import Image
 
 from facemovie.models import ImageAnalysis
 
+_EXIF_IFD = 34665  # ExifOffset: nested camera metadata
 _EXIF_CAPTURE_TIME = 36867  # DateTimeOriginal
-_EXIF_FALLBACK_TIME = 306  # DateTime
+_EXIF_DIGITIZED_TIME = 36868  # DateTimeDigitized
 
 
 def parse_capture_time(value: str | None) -> datetime | None:
@@ -29,19 +30,36 @@ def parse_capture_time(value: str | None) -> datetime | None:
     return None
 
 
-def capture_time(path: Path) -> datetime | None:
-    """Liest eine lokale EXIF-Aufnahmezeit, ohne die Datei zu verändern."""
+def capture_time_with_source(path: Path) -> tuple[datetime | None, str | None]:
+    """Read capture/digitization time; generic DateTime is not an acquisition date."""
     try:
         with Image.open(path) as image:
-            value = image.getexif().get(_EXIF_CAPTURE_TIME) or image.getexif().get(_EXIF_FALLBACK_TIME)
+            exif = image.getexif()
+            try:
+                camera_exif = exif.get_ifd(_EXIF_IFD)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                camera_exif = {}
+            values = (
+                (camera_exif.get(_EXIF_CAPTURE_TIME), "DateTimeOriginal"),
+                (exif.get(_EXIF_CAPTURE_TIME), "DateTimeOriginal"),
+                (camera_exif.get(_EXIF_DIGITIZED_TIME), "DateTimeDigitized"),
+                (exif.get(_EXIF_DIGITIZED_TIME), "DateTimeDigitized"),
+            )
     except (OSError, ValueError):
-        return None
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.strptime(value, "%Y:%m:%d %H:%M:%S")
-    except ValueError:
-        return None
+        return None, None
+    for value, source in values:
+        if not isinstance(value, str):
+            continue
+        try:
+            return datetime.strptime(value, "%Y:%m:%d %H:%M:%S"), source
+        except ValueError:
+            continue
+    return None, None
+
+
+def capture_time(path: Path) -> datetime | None:
+    """Compatibility helper for callers needing only the timestamp."""
+    return capture_time_with_source(path)[0]
 
 
 def _quality_key(item: ImageAnalysis) -> tuple[float, float, float, str]:

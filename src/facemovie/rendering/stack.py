@@ -237,6 +237,7 @@ def render_stack_mp4(
     opening_slide: Path | None = None,
     closing_slide: Path | None = None,
     slide_seconds: float = 3.0,
+    edge_fades: bool = True,
     progress: Callable[[str, int, int], None] | None = None,
     preview_labels: list[str] | None = None,
 ) -> StackVideoResult:
@@ -252,9 +253,6 @@ def render_stack_mp4(
         raise ValueError("Die Vorschau-Beschriftungen passen nicht zu den Karten.")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     width, height = output_size
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
-    if not writer.isOpened():
-        raise OSError("OpenCV konnte keinen MP4-VideoWriter öffnen.")
     hold_frames, transition_frames = frame_counts(fps, hold_seconds, transition_seconds)
     slide_frames = max(1, round(fps * slide_seconds))
     opening_frame = _static_slide_frame(opening_slide, output_size) if opening_slide else None
@@ -263,24 +261,52 @@ def render_stack_mp4(
         [landmarks for _, landmarks, _ in entries],
         [face_height for _, _, face_height in entries],
     )
-    cards = []
-    for index, (path, landmarks, face_height) in enumerate(entries, start=1):
+    # Prepare only the next card. Unlimited stacks retain one float composite;
+    # finite stacks retain at most the requested number of colour/alpha layers.
+    visible: list[tuple[np.ndarray, np.ndarray]] = []
+    accumulated = np.zeros((height, width, 3), dtype=np.float32) if max_visible_cards == 0 else None
+
+    def prepare_card(index: int) -> tuple[np.ndarray, np.ndarray]:
         if progress:
-            progress("Karten vorbereiten", index - 1, len(entries))
-        cards.append(_card_layer(
+            progress("Karten vorbereiten", index, len(entries))
+        path, landmarks, face_height = entries[index]
+        card = _card_layer(
             path, landmarks, output_size, eye_y, eye_distance_fraction, border_pixels,
             border_color, target_face_ratio, eye_size_balance, face_height,
-        ))
-    if progress:
-        progress("Karten vorbereiten", len(entries), len(entries))
-    visible: list[tuple[np.ndarray, np.ndarray]] = []
+        )
+        if progress:
+            progress("Karten vorbereiten", index + 1, len(entries))
+        return card
+
+    def append_card(card: tuple[np.ndarray, np.ndarray]) -> None:
+        nonlocal accumulated
+        if accumulated is not None:
+            color, alpha = card
+            weight = (alpha.astype(np.float32) / 255.0)[..., None]
+            accumulated = color.astype(np.float32) * weight + accumulated * (1.0 - weight)
+        else:
+            visible.append(card)
+            del visible[:-max_visible_cards]
+
+    def current_stack() -> np.ndarray:
+        if accumulated is not None:
+            return np.clip(accumulated, 0, 255).astype(np.uint8)
+        return _compose([(color, alpha, 1.0) for color, alpha in visible], output_size)
+
     written = 0
-    total_frames = len(cards) * (hold_frames + transition_frames)
+    total_frames = len(entries) * (hold_frames + transition_frames)
     total_frames += slide_frames * int(opening_frame is not None)
     total_frames += slide_frames * int(closing_frame is not None)
     total_frames += transition_frames * int(closing_frame is not None)
+    # Without an opening slide the first card normally dissolves in from
+    # black. Loop playback begins directly with that card instead.
+    if not edge_fades and opening_frame is None:
+        total_frames -= transition_frames
     def write_frame(frame: np.ndarray, label: str | None = None) -> None:
         writer.write(_with_preview_label(frame, label))
+    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        raise OSError("OpenCV konnte keinen MP4-VideoWriter öffnen.")
     try:
         first_card_already_visible = False
         if opening_frame is not None:
@@ -288,7 +314,7 @@ def render_stack_mp4(
             # fade is contained within its own hold time so the duration shown
             # in the UI stays accurate.  This avoids a distracting hard cut
             # from black before the first card transition starts.
-            slide_fade_frames = min(transition_frames, slide_frames)
+            slide_fade_frames = min(transition_frames, slide_frames) if edge_fades else 0
             black_frame = np.zeros_like(opening_frame)
             for frame_index in range(slide_frames):
                 opacity = (
@@ -301,14 +327,28 @@ def render_stack_mp4(
                     progress("Video schreiben", written, total_frames)
             # The first normal card transition used to fade in from black. With
             # an opening slide it instead fades from the slide into that card.
-            first_static = _compose([(*cards[0], 1.0)], output_size)
+            first_card = prepare_card(0)
+            first_static = _compose([(*first_card, 1.0)], output_size)
             for step in range(1, transition_frames + 1):
                 opacity = step / transition_frames if transition_frames else 1.0
                 write_frame(cv2.addWeighted(opening_frame, 1.0 - opacity, first_static, opacity, 0.0), preview_labels[0] if preview_labels else None)
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
-            visible.append(cards[0])
+            append_card(first_card)
+            for _ in range(hold_frames):
+                write_frame(first_static, preview_labels[0] if preview_labels else None)
+                written += 1
+                if progress and (written % 10 == 0 or written == total_frames):
+                    progress("Video schreiben", written, total_frames)
+            first_card_already_visible = True
+        elif not edge_fades:
+            # Keep the first visible frame intact for a direct loop restart;
+            # the regular card-to-card dissolves below are deliberately left
+            # untouched.
+            first_card = prepare_card(0)
+            first_static = _compose([(*first_card, 1.0)], output_size)
+            append_card(first_card)
             for _ in range(hold_frames):
                 write_frame(first_static, preview_labels[0] if preview_labels else None)
                 written += 1
@@ -316,19 +356,18 @@ def render_stack_mp4(
                     progress("Video schreiben", written, total_frames)
             first_card_already_visible = True
         start_index = 1 if first_card_already_visible else 0
-        for card_index, card in enumerate(cards[start_index:], start=start_index):
+        for card_index in range(start_index, len(entries)):
+            card = prepare_card(card_index)
             label = preview_labels[card_index] if preview_labels else None
-            base = _compose([(color, alpha, 1.0) for color, alpha in visible], output_size)
+            base = current_stack()
             for step in range(1, transition_frames + 1):
                 opacity = step / transition_frames if transition_frames else 1.0
                 write_frame(_compose([(base, np.full((height, width), 255, dtype=np.uint8), 1.0), (*card, opacity)], output_size), label)
                 written += 1
                 if progress and (written % 10 == 0 or written == total_frames):
                     progress("Video schreiben", written, total_frames)
-            visible.append(card)
-            if max_visible_cards:
-                visible = visible[-max_visible_cards:]
-            static = _compose([(color, alpha, 1.0) for color, alpha in visible], output_size)
+            append_card(card)
+            static = current_stack()
             for _ in range(hold_frames):
                 write_frame(static, label)
                 written += 1
@@ -337,7 +376,7 @@ def render_stack_mp4(
         if closing_frame is not None:
             # Preserve the current stack through the same soft transition that
             # is used between cards, rather than cutting abruptly to the slide.
-            final_stack = _compose([(color, alpha, 1.0) for color, alpha in visible], output_size)
+            final_stack = current_stack()
             for step in range(1, transition_frames + 1):
                 opacity = step / transition_frames if transition_frames else 1.0
                 write_frame(cv2.addWeighted(final_stack, 1.0 - opacity, closing_frame, opacity, 0.0))
@@ -346,7 +385,7 @@ def render_stack_mp4(
                     progress("Video schreiben", written, total_frames)
             # Keep the complete closing-slide segment at the user-selected
             # duration: its final frames are the fade-out, not extra time.
-            slide_fade_frames = min(transition_frames, slide_frames)
+            slide_fade_frames = min(transition_frames, slide_frames) if edge_fades else 0
             for _ in range(slide_frames - slide_fade_frames):
                 write_frame(closing_frame)
                 written += 1

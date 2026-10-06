@@ -24,29 +24,19 @@ from facemovie.metadata.xmp import find_region
 from facemovie.models import ImageAnalysis, Landmarks
 from facemovie.project import StoryboardProject
 from facemovie.quality import assess
+from facemovie.rendering.project_sequence import (
+    _region_from_data, _landmarks_from_record, _face_reference_height,
+    _landmarks_with_eye_override as _landmarks_with_eye_override, prepare_project_sequence,
+)
 from facemovie.rendering.audio import mux_background_audio, transcode_video_quality
 from facemovie.rendering.contact_sheet import write_contact_sheet
 from facemovie.rendering.stack import card_fits, median_face_ratio, render_stack_mp4, source_size
 from facemovie.rendering.video import render_mp4
 from facemovie.runtime import bundled_asset_root
-from facemovie.selection import capture_time, reduce_series
+from facemovie.selection import capture_time_with_source, reduce_series
 from facemovie.storyboard import launch as launch_storyboard
 from facemovie.vision.mediapipe_landmarker import MediaPipeFaceLandmarker
 from facemovie.vision.yunet import YuNetLandmarker
-
-
-def _region_from_data(data: dict | None):
-    if not data:
-        return None
-    try:
-        from facemovie.models import FaceRegion
-        return FaceRegion(
-            str(data["name"]), float(data["x"]), float(data["y"]),
-            float(data["width"]), float(data["height"]),
-            str(data["coordinate_system"]), str(data["source"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
 
 
 def _regions_from_manifest(path: Path | None) -> dict[str, object]:
@@ -140,10 +130,11 @@ def align(args: argparse.Namespace) -> int:
         try:
             image = _oriented_bgr(path)
             height, width = image.shape[:2]
-            timestamp = capture_time(path)
+            timestamp, timestamp_source = capture_time_with_source(path)
             item = ImageAnalysis(
                 path=str(path), source_size=(width, height),
                 capture_time=timestamp.isoformat() if timestamp else None,
+                capture_time_source=timestamp_source,
             )
             if path.name in excluded_files:
                 if args.reference_originals:
@@ -290,44 +281,6 @@ def render_video(args: argparse.Namespace) -> int:
     return 0
 
 
-def _landmarks_from_record(record: dict) -> Landmarks | None:
-    data = record.get("landmarks")
-    if not data:
-        return None
-    return Landmarks(
-        tuple(data["left_eye"]), tuple(data["right_eye"]), tuple(data["nose"]),
-        tuple(data["left_mouth"]), tuple(data["right_mouth"]), data["score"], tuple(data["face_box"]),
-    )
-
-
-def _face_reference_height(record: dict, landmarks: Landmarks) -> float:
-    region = record.get("region")
-    source_size_value = record.get("source_size")
-    if region and source_size_value and region.get("height"):
-        return float(region["height"]) * float(source_size_value[1])
-    return float(landmarks.face_box[3])
-
-
-def _landmarks_with_eye_override(
-    landmarks: Landmarks, override: list[list[float]] | None,
-) -> Landmarks:
-    """Apply a validated project-only iris correction to otherwise automatic geometry."""
-    if not isinstance(override, list) or len(override) != 2:
-        return landmarks
-    try:
-        left_eye = tuple(float(value) for value in override[0])
-        right_eye = tuple(float(value) for value in override[1])
-    except (TypeError, ValueError):
-        return landmarks
-    if len(left_eye) != 2 or len(right_eye) != 2:
-        return landmarks
-    return Landmarks(
-        left_eye=left_eye, right_eye=right_eye, nose=landmarks.nose,
-        left_mouth=landmarks.left_mouth, right_mouth=landmarks.right_mouth,
-        score=landmarks.score, face_box=landmarks.face_box,
-    )
-
-
 def render_stack_video(args: argparse.Namespace) -> int:
     analysis_path = args.analysis.resolve()
     records = json.loads(analysis_path.read_text(encoding="utf-8"))
@@ -395,96 +348,15 @@ def render_project_video(args: argparse.Namespace) -> int:
         str(Path(card.source_path).resolve()): index
         for index, card in enumerate(project.cards, start=1)
     }
-    stack_entries: list[tuple[Path, Landmarks, float]] = []
-    skipped: list[dict[str, str]] = []
-    dense_detector = None
-    if args.mediapipe_model:
-        if not args.person:
-            raise ValueError("--person ist zusammen mit --mediapipe-model erforderlich.")
-        dense_detector = MediaPipeFaceLandmarker(args.mediapipe_model.resolve())
-    enabled_cards = [card for card in project.cards if card.enabled]
-    unavailable_sources = [
-        Path(card.source_path)
-        for card in enabled_cards
-        if not Path(card.source_path).is_file()
-    ]
-    if unavailable_sources:
-        filenames = ", ".join(path.name for path in unavailable_sources[:5])
-        remaining = len(unavailable_sources) - 5
-        suffix = f" (+{remaining} more)" if remaining > 0 else ""
-        raise FileNotFoundError(
-            "Original image(s) selected for this movie are unavailable: "
-            f"{filenames}{suffix}"
-        )
-    unavailable_slides = [
-        Path(path) for path in (project.opening_slide_path, project.closing_slide_path)
-        if path and not Path(path).is_file()
-    ]
+    unavailable_slides = [Path(value) for value in (project.opening_slide_path, project.closing_slide_path)
+                          if value and not Path(value).is_file()]
     if unavailable_slides:
-        raise FileNotFoundError(
-            "Start- oder Endfolie ist nicht mehr erreichbar: "
-            + ", ".join(path.name for path in unavailable_slides)
-        )
-    _progress(args, "Gesichtsgeometrie", 0, max(1, len(enabled_cards)))
-    try:
-        for index, card in enumerate(enabled_cards, start=1):
-            _progress(args, "Gesichtsgeometrie", index - 1, len(enabled_cards))
-            source_path = Path(card.source_path).resolve()
-            record = by_path.get(str(source_path))
-            if dense_detector:
-                region = _region_from_data(record.get("region") if record else None) or find_region(source_path, args.person)
-                dense = dense_detector.detect(_oriented_bgr(source_path), region) if region else None
-                landmarks = dense.as_sparse_landmarks(args.eye_anchor) if dense else None
-                if landmarks is not None:
-                    landmarks = _landmarks_with_eye_override(landmarks, card.eye_override)
-                missing_reason = "MediaPipe fand in der markierten Personenregion keine Geometrie."
-            else:
-                landmarks = _landmarks_from_record(record) if record else None
-                if landmarks is not None:
-                    landmarks = _landmarks_with_eye_override(landmarks, card.eye_override)
-                missing_reason = "Keine verwendbaren Gesichtsmarkierungen im Analyseergebnis."
-            if not record or not landmarks:
-                skipped.append({"filename": source_path.name, "reason": missing_reason})
-                continue
-            face_height = landmarks.face_box[3] if dense_detector else _face_reference_height(record, landmarks)
-            stack_entries.append((source_path, landmarks, face_height))
-    finally:
-        if dense_detector:
-            dense_detector.close()
-    _progress(args, "Gesichtsgeometrie", len(enabled_cards), max(1, len(enabled_cards)))
-    if project.movie_mode == "timelapse":
-        by_year: dict[str, list[tuple[Path, Landmarks, float]]] = {}
-        for entry in stack_entries:
-            record = by_path.get(str(entry[0].resolve()), {})
-            metrics = record.get("metrics") or {}
-            face_height = float(metrics.get("face_height_px", 0.0))
-            score = float(metrics.get("yunet_score", 0.0))
-            try:
-                yaw = abs(float(metrics["pose_yaw_degrees"]))
-            except (KeyError, TypeError, ValueError):
-                yaw = None
-            required_height = args.height * 0.22
-            quality_level = 0
-            if face_height <= 0 or score <= 0 or face_height < required_height * 0.65 or score < 0.42:
-                quality_level = 2
-            elif face_height < required_height or score < 0.65 or yaw is None or yaw > project.maximum_side_view_degrees:
-                quality_level = 1
-            if quality_level > project.selection_quality_level:
-                continue
-            if project.timelapse_frontal_only and (yaw is None or yaw > 12.0):
-                continue
-            year = str(record.get("capture_time") or "unbekannt")[:4]
-            by_year.setdefault(year, []).append(entry)
-        stack_entries = []
-        limit = max(0, project.timelapse_max_images_per_year)
-        for entries_for_year in by_year.values():
-            if limit == 0 or len(entries_for_year) <= limit:
-                stack_entries.extend(entries_for_year)
-                continue
-            positions = [round(index * (len(entries_for_year) - 1) / (limit - 1)) for index in range(limit)] if limit > 1 else [len(entries_for_year) // 2]
-            stack_entries.extend(entries_for_year[index] for index in positions)
-        if not stack_entries:
-            raise ValueError("Kein technisch geeignetes, frontales Bild für den Zeitraffer vorhanden.")
+        raise FileNotFoundError("Start- oder Endfolie ist nicht mehr erreichbar: "
+                                + ", ".join(path.name for path in unavailable_slides))
+    stack_entries, skipped = prepare_project_sequence(
+        project, by_path, args.mediapipe_model, args.person, args.eye_anchor,
+        progress=lambda phase, current, total: _progress(args, phase, current, total),
+    )
     preview_labels = _preview_labels_for_cards(
         stack_entries,
         card_numbers_by_path,
@@ -517,6 +389,7 @@ def render_project_video(args: argparse.Namespace) -> int:
             Path(project.opening_slide_path) if project.opening_slide_path else None,
             Path(project.closing_slide_path) if project.closing_slide_path else None,
             project.slide_seconds,
+            edge_fades=project.edge_fades_enabled,
             progress=lambda phase, current, total: _progress(args, phase, current, total),
             preview_labels=preview_labels,
         )
@@ -561,6 +434,7 @@ def render_project_video(args: argparse.Namespace) -> int:
             "opening_slide": Path(project.opening_slide_path).name if project.opening_slide_path else None,
             "closing_slide": Path(project.closing_slide_path).name if project.closing_slide_path else None,
             "slide_seconds": project.slide_seconds,
+            "edge_fades_enabled": project.edge_fades_enabled,
             "output_quality": project.output_quality,
         },
         "result": result.as_dict(),

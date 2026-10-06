@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -30,6 +31,9 @@ class StoryboardProject:
     person_name: str = ""
     hold_seconds: float = 3.3
     transition_seconds: float = 0.8
+    # Standard films gently fade at their outer edges. Loop playback keeps
+    # the first and last visible frames intact for direct restarts.
+    edge_fades_enabled: bool = True
     fps: float = 30.0
     output_width: int = 1920
     output_height: int = 1080
@@ -86,6 +90,9 @@ class StoryboardProject:
     # their explicitly stored choice.
     preview_show_face_region: bool = True
     digikam_source: dict[str, object] | None = None
+    card_size: str = "medium"
+    card_sort: str = "date"
+    card_filters: list[str] = field(default_factory=list)
 
     @classmethod
     def from_analysis(cls, analysis_path: Path) -> StoryboardProject:
@@ -123,6 +130,18 @@ class StoryboardProject:
                 return str(region["name"])
         return ""
 
+    def analysis_matches(self, path: Path) -> bool:
+        """Accept only readable analyses covering every source in this project."""
+        try:
+            records = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(records, list) or not self.cards:
+                return False
+            sources = {str(Path(record["path"]).resolve()) for record in records
+                       if isinstance(record, dict) and record.get("path")}
+            return all(str(Path(card.source_path).resolve()) in sources for card in self.cards)
+        except (OSError, ValueError, TypeError):
+            return False
+
     @classmethod
     def load(cls, path: Path) -> StoryboardProject:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -147,22 +166,64 @@ class StoryboardProject:
             project.background_audio_paths = [project.background_audio_path]
         if project.background_audio_paths:
             project.background_audio_path = project.background_audio_paths[0]
+        if project.card_size not in {"small", "medium", "large"}:
+            project.card_size = "medium"
+        if project.card_sort not in {"date", "name"}:
+            project.card_sort = "date"
+        project.card_filters = [key for key in ("used_only", "suitable", "borderline", "unsuitable")
+                                if isinstance(project.card_filters, list) and key in project.card_filters]
+        stored_analysis = Path(project.analysis_path)
+        if project.analysis_path:
+            resolved = stored_analysis if stored_analysis.is_absolute() else path.resolve().parent / stored_analysis
+            project.analysis_path = str(resolved)
+            if not resolved.is_file():
+                candidates = {
+                    path.resolve().parent / stored_analysis.parent.name / stored_analysis.name,
+                    path.resolve().parent / f"{path.stem}-Daten" / "analysis.json",
+                }
+                matches = [candidate for candidate in candidates if project.analysis_matches(candidate)]
+                if len(matches) == 1:
+                    project.analysis_path = str(matches[0])
+                    # Runtime-only: never serialize recovery notifications as settings.
+                    project.analysis_recovered = True
         if not project.person_name:
             analysis_path = Path(project.analysis_path)
             if analysis_path.is_file():
-                records = json.loads(analysis_path.read_text(encoding="utf-8"))
-                project.person_name = cls._person_from_records(records)
+                try:
+                    records = json.loads(analysis_path.read_text(encoding="utf-8"))
+                    if isinstance(records, list) and all(isinstance(record, dict) for record in records):
+                        project.person_name = cls._person_from_records(records)
+                except (OSError, ValueError):
+                    pass  # GUI offers analysis recovery without losing the project.
+
         return project
 
     def save(self, path: Path) -> None:
         settings = asdict(self)
         settings.pop("analysis_path")
         settings.pop("cards")
+        analysis = self.analysis_path
+        if analysis:
+            resolved = Path(analysis).resolve()
+            try:
+                analysis = str(resolved.relative_to(path.resolve().parent))
+            except ValueError:
+                analysis = str(resolved)
         payload = {
             "version": PROJECT_VERSION,
-            "analysis_path": self.analysis_path,
+            "analysis_path": analysis,
             "cards": [asdict(card) for card in self.cards],
             "settings": settings,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=path.parent, suffix=".tmp", delete=False,
+            ) as file:
+                temporary = Path(file.name)
+                json.dump(payload, file, ensure_ascii=False, indent=2)
+            temporary.replace(path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)

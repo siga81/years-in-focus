@@ -33,3 +33,13 @@ def test_bulk_relink_never_chooses_same_name_with_wrong_or_multiple_size(tmp_pat
     result = find_unique_matches([old], root, {normalised_path(old): (640, 480)})
     assert not result.matches
     assert result.ambiguous == (old,)
+
+
+def test_bulk_relink_uses_exif_oriented_dimensions(tmp_path: Path) -> None:
+    candidate = tmp_path / "rotated.jpg"
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.new("RGB", (640, 480)).save(candidate, exif=exif)
+    old = "D:/photos/rotated.jpg"
+    result = find_unique_matches([old], tmp_path, {normalised_path(old): (480, 640)})
+    assert result.matches[old] == candidate.resolve()

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "years-in-focus"
-version = "0.1.4"
+version = "0.1.5"
 description = "Lokales Werkzeug für zeitübergreifende Porträtfilme ohne Standard-Morphing."
 readme = "README.md"
 requires-python = ">=3.11"

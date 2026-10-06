@@ -27,7 +27,11 @@ class RelinkSearch:
 def _image_size(path: Path) -> tuple[int, int] | None:
     try:
         with Image.open(path) as image:
-            return image.size
+            width, height = image.size
+            # Analysis stores dimensions after EXIF orientation is applied.
+            if image.getexif().get(274) in {5, 6, 7, 8}:
+                return height, width
+            return width, height
     except (OSError, ValueError):
         return None
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 from facemovie.models import ImageAnalysis
-from facemovie.selection import reduce_series
+from facemovie.selection import capture_time, reduce_series
 
 
 def _item(name: str, timestamp: str, score: float) -> ImageAnalysis:
@@ -58,3 +61,25 @@ def test_reduce_series_prefers_the_more_frontal_photo_when_other_values_match() 
 
     assert frontal.status == "accepted"
     assert side_view.status == "deferred"
+
+
+def test_capture_time_prefers_nested_datetime_original_over_generic_datetime(monkeypatch) -> None:
+    """JPEG camera timestamps are stored below ExifOffset, not at the root."""
+    class FakeExif(dict):
+        def get_ifd(self, tag: int) -> dict[int, str]:
+            assert tag == 34665
+            return {36867: "2018:12:13 14:22:31"}
+
+    class FakeImage:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def getexif(self) -> FakeExif:
+            return FakeExif({306: "2023:06:21 22:25:51"})
+
+    monkeypatch.setattr("facemovie.selection.Image.open", lambda _path: FakeImage())
+
+    assert capture_time(Path("edited-photo.jpg")) == datetime(2018, 12, 13, 14, 22, 31)

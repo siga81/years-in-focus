@@ -1,21 +1,22 @@
-# Security policy
+# Sicherheitsrichtlinie
 
-Years in Focus is an early prototype. Do not include real credentials in project
-files or bug reports, and do not publish photos, databases or personally
-identifiable metadata in an issue.
+Years in Focus befindet sich in einem frühen Prototype-Stadium. Bitte nutze
+keine echten Zugangsdaten in Projektdateien oder Fehlerberichten und
+veröffentliche keine Fotos, Datenbanken oder personenbezogenen Metadaten in
+einem Issue.
 
-## Reporting a vulnerability privately
+## Schwachstellen privat melden
 
-Use the **Report a vulnerability** button in the repository's **Security** tab.
-This GitHub reporting channel is private: the report is not publicly visible and
-can be handled together as a security advisory.
+Bitte nutze auf GitHub im Bereich **Security** die Schaltfläche **Report a
+vulnerability**. Dieser Meldeweg ist privat; die Meldung ist nicht öffentlich
+sichtbar und kann gemeinsam als Sicherheitsberatung bearbeitet werden.
 
-For ordinary bugs, feature requests and usage questions, public issues are
-welcome. Do not disclose security- or privacy-relevant details in a public
-issue.
+Für normale Fehler, Funktionswünsche und Bedienungsfragen dürfen öffentliche
+Issues verwendet werden. Keine sicherheits- oder datenschutzrelevanten Details
+in einem öffentlichen Issue veröffentlichen.
 
-## Supported version
+## Unterstützte Version
 
-Security fixes are made for the current prototype release, 0.1.4, where
-practicable. This early-stage project does not yet offer a guaranteed response
-time.
+Sicherheitskorrekturen erfolgen nach Möglichkeit für die aktuelle
+Prototype-Version 0.1.5. Einen verbindlichen Reaktionszeitraum gibt es in
+dieser frühen Projektphase noch nicht.

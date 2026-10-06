@@ -61,3 +61,18 @@ def test_export_command_requests_safe_overwrite_only_when_confirmed(tmp_path: Pa
         "python", tmp_path, tmp_path / "test.facemovie.json", project, tmp_path / "movie.mp4", overwrite=True,
     )
     assert "--overwrite" in command
+
+
+def test_packaged_preview_keeps_review_overlays(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("facemovie.storyboard.sys.frozen", True, raising=False)
+    project = StoryboardProject(
+        analysis_path="analysis.json", person_name="Testperson",
+        preview_show_image_number=True, preview_show_filename=True,
+    )
+    for preview in (True, False):
+        command = build_export_command(
+            "python", tmp_path, tmp_path / "test.yif.json", project,
+            tmp_path / "movie.mp4", preview=preview,
+        )
+        assert ("--preview-overlay-number" in command) == preview
+        assert ("--preview-overlay-filename" in command) == preview
